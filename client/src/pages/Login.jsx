@@ -112,8 +112,9 @@ function Login() {
         </div>
 
         {/* Terminal Info */}
+
         <div className="mt-space-md pt-space-sm border-t border-outline-variant flex items-center justify-between text-on-surface-variant font-data-mono-md text-body-sm">
-          <span>Terminal: IND-GOA-01</span>
+          <span>Terminal: IND-CMD-01</span>
           <span>v2.4.1</span>
         </div>
       </div>

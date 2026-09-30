@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from '../services/api';
 import outbox from './outbox';
 import db from '../db/dexie';
 
@@ -17,7 +17,12 @@ class SyncEngine {
   handleOnline() {
     this.isOnline = true;
     console.log('Network online - initiating sync');
-    this.sync();
+    
+    // Fetch the userId from local storage to ensure the sync has the required parameter
+    const userId = localStorage.getItem('user-id');
+    if (userId) {
+      this.sync(userId);
+    }
   }
 
   handleOffline() {
@@ -58,7 +63,8 @@ class SyncEngine {
     console.log(`Pushing ${pendingMutations.length} mutations`);
 
     try {
-      const response = await axios.post('/api/sync/push', {
+      // Swapped bare axios for our authenticated api instance
+      const response = await api.post('/api/sync/push', {
         mutations: pendingMutations,
         device_id: outbox.deviceId
       });
@@ -86,7 +92,8 @@ class SyncEngine {
     const cursor = localStorage.getItem('sync-cursor') || '0';
 
     try {
-      const response = await axios.post('/api/sync/pull', {
+      // Swapped bare axios for our authenticated api instance
+      const response = await api.post('/api/sync/pull', {
         cursor: cursor,
         user_id: userId
       });
