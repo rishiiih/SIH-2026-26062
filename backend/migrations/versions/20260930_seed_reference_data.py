@@ -77,12 +77,13 @@ def upgrade() -> None:
     """)
 
     # Insert stations with real coordinates
+ # Insert stations with real coordinates
     op.execute("""
         INSERT INTO stations (name, code, location, latitude, longitude, region, timezone, is_active) VALUES
         ('Maitri', 'MAI', 'Schirmacher Oasis, Antarctica', -70.7650, 11.7330, 'antarctica', 'Asia/Kolkata', true),
         ('Bharati', 'BHA', 'Larsemann Hills, Antarctica', -69.4147, 76.1769, 'antarctica', 'Asia/Kolkata', true),
         ('Himadri', 'HIM', 'Ny-Ålesund, Svalbard, Arctic', 78.9230, 11.9230, 'arctic', 'Europe/Oslo', true),
-        ('Goa Command', 'GOA', 'Goa, India', 15.4989, 73.8278, 'antarctica', 'Asia/Kolkata', true)
+        ('Central Command', 'CMD', 'Command Centre, India', 15.4989, 73.8278, 'india', 'Asia/Kolkata', true)
     """)
 
 

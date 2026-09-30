@@ -27,11 +27,28 @@ def create_app(config_class=Config):
         }
     }, supports_credentials=True)
 
+    # 1. Existing blueprints
     from app.routes import auth, users, roles, stations, audit_log
+    
+    # 2. Import the new route files you just stubbed
+    # from app.routes import cargo, inventory, emergency, sync, dashboard
+
+    # Register existing blueprints
     app.register_blueprint(auth.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(roles.bp)
     app.register_blueprint(stations.bp)
     app.register_blueprint(audit_log.bp)
+
+    # ---------------------------------------------------------------------
+    # Phase 2-5 Blueprints
+    # Note: Keep these commented out until you actually define 
+    # `bp = Blueprint(...)` inside their respective files!
+    # ---------------------------------------------------------------------
+    # app.register_blueprint(cargo.bp)
+    # app.register_blueprint(inventory.bp)
+    # app.register_blueprint(emergency.bp)
+    # app.register_blueprint(sync.bp)
+    # app.register_blueprint(dashboard.bp)
 
     return app
