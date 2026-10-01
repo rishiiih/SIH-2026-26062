@@ -3,7 +3,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from app import db
+from app.db import Base
 from config import Config
 
 # this is the Alembic Config object, which provides
@@ -12,8 +12,7 @@ config = context.config
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-target_metadata = db.metadata
-
+target_metadata = Base.metadata
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
