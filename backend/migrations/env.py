@@ -1,23 +1,44 @@
+import os
+from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-
 from alembic import context
+from dotenv import load_dotenv
 
+# 1. Load environment variables
+load_dotenv()
+
+# 2. Import Base and ALL models so Alembic can read them
 from app.db import Base
-from config import Config
+import app.models.user
+import app.models.role
+import app.models.station
+import app.models.sync
+import app.models.cargo
+import app.models.audit_log
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# 3. Get the Alembic Config object
 config = context.config
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-target_metadata = Base.metadata
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+# 4. Interpret the config file for Python logging
+if config.config_file_name is not None:
+    try:
+        fileConfig(config.config_file_name)
+    except KeyError:
+        pass  # Skip if alembic.ini is missing logging sections
 
+# 5. Inject the DATABASE_URL from our .env file
+db_url = os.environ.get('DATABASE_URL')
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+if db_url:
+    # Escape the % symbol so Python's configparser doesn't crash on encoded passwords (like %40)
+    escaped_url = db_url.replace('%', '%%')
+    config.set_main_option('sqlalchemy.url', escaped_url)
+
+# 6. Set target metadata for autogenerate
+target_metadata = Base.metadata
 
 def get_url():
     from dotenv import load_dotenv

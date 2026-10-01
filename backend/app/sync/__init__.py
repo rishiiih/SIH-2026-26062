@@ -1,1 +1,1 @@
-from app.sync.handlers import cargo
+from app.sync.handlers import cargo, custody
