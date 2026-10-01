@@ -41,6 +41,18 @@ export default function useSyncStatus() {
     0
   );
 
+  const failedCount = useLiveQuery(
+  async () => {
+    if (!userId) {
+      return 0;
+    }
+
+    return outbox.getFailedCount(userId);
+  },
+  [userId],
+  0
+);
+
   useEffect(() => {
     return syncEngine.subscribe(
       (status) => {
@@ -53,6 +65,7 @@ export default function useSyncStatus() {
     isOnline: engineStatus.isOnline,
     pendingCount,
     conflictCount,
+    failedCount,
     lastSyncTime: engineStatus.lastSyncTime,
     syncing: engineStatus.syncing,
   };

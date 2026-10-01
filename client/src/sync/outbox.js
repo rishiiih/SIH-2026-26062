@@ -1,5 +1,3 @@
-import Dexie from 'dexie';
-
 import db from '../db/dexie';
 
 const RETRY_DELAYS = [
@@ -21,7 +19,10 @@ class Outbox {
 
     if (!deviceId) {
       deviceId = crypto.randomUUID();
-      localStorage.setItem('device-id', deviceId);
+      localStorage.setItem(
+        'device-id',
+        deviceId
+      );
     }
 
     return deviceId;
@@ -68,26 +69,36 @@ class Outbox {
     return idempotencyKey;
   }
 
-  async getPendingMutations(userId) {
+  async getPendingMutations(
+    userId,
+    { forceRetry = false } = {}
+  ) {
     const now = Date.now();
 
     const records = await db.outbox
       .where('user_id')
       .equals(userId)
       .and((item) => {
-        const eligibleStatus =
+        const eligible =
           item.status === 'pending' ||
           item.status === 'failed';
 
+        if (!eligible) {
+          return false;
+        }
+
+        if (forceRetry) {
+          return true;
+        }
+
         const nextAttempt =
           item.next_attempt_at
-            ? new Date(item.next_attempt_at).getTime()
+            ? new Date(
+                item.next_attempt_at
+              ).getTime()
             : 0;
 
-        return (
-          eligibleStatus &&
-          nextAttempt <= now
-        );
+        return nextAttempt <= now;
       })
       .toArray();
 
@@ -107,20 +118,6 @@ class Outbox {
     });
   }
 
-  async getUserItems(userId) {
-    return db.outbox
-      .where('user_id')
-      .equals(userId)
-      .toArray();
-  }
-
-  async markAsSent(outboxId) {
-    await db.outbox.update(outboxId, {
-      status: 'sent',
-      updated_at: new Date().toISOString(),
-    });
-  }
-
   async markAsAcked(outboxId) {
     await db.outbox.update(outboxId, {
       status: 'acked',
@@ -131,7 +128,7 @@ class Outbox {
     });
   }
 
-  async markAsFailed(
+  async markForRetry(
     outboxId,
     errorMessage
   ) {
@@ -152,14 +149,24 @@ class Outbox {
         )
       ];
 
-    const nextAttemptAt =
-      new Date(Date.now() + delay).toISOString();
+    await db.outbox.update(outboxId, {
+      status: 'pending',
+      error_message: errorMessage,
+      retry_count: retryCount,
+      next_attempt_at: new Date(
+        Date.now() + delay
+      ).toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
 
+  async markAsFailed(
+    outboxId,
+    errorMessage
+  ) {
     await db.outbox.update(outboxId, {
       status: 'failed',
       error_message: errorMessage,
-      retry_count: retryCount,
-      next_attempt_at: nextAttemptAt,
       updated_at: new Date().toISOString(),
     });
   }
@@ -177,9 +184,17 @@ class Outbox {
       .where('user_id')
       .equals(userId)
       .and(
-        (item) =>
-          item.status === 'pending' ||
-          item.status === 'failed'
+        (item) => item.status === 'pending'
+      )
+      .count();
+  }
+
+  async getFailedCount(userId) {
+    return db.outbox
+      .where('user_id')
+      .equals(userId)
+      .and(
+        (item) => item.status === 'failed'
       )
       .count();
   }
@@ -188,7 +203,9 @@ class Outbox {
     await db.outbox
       .where('user_id')
       .equals(userId)
-      .and((item) => item.status === 'acked')
+      .and(
+        (item) => item.status === 'acked'
+      )
       .delete();
   }
 }

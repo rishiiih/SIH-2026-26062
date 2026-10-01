@@ -3,6 +3,7 @@ import db from '../db/dexie';
 import outbox from './outbox';
 import { authService } from '../services/auth';
 
+
 const PUSH_BATCH_SIZE = 50;
 const HEALTH_INTERVAL = 15000;
 
@@ -107,25 +108,28 @@ class SyncEngine {
   }
 
   async sync(
-    userId = authService.getUser()?.id
+    userId = authService.getUser()?.id,
+    { forceRetry = false } = {}
   ) {
     if (!userId || this.syncInProgress) {
       return;
     }
 
-    if (!this.isOnline) {
-      const healthy = await this.checkHealth(false);
+    const healthy = await this.checkHealth(false);
 
-      if (!healthy) {
-        return;
-      }
+    if (!healthy) {
+      return;
     }
 
     this.syncInProgress = true;
     this.notify();
 
     try {
-      await this.pushMutations(userId);
+      await this.pushMutations(
+        userId,
+        forceRetry
+      );
+
       await this.pullChanges(userId);
 
       this.lastSyncTime =
@@ -141,9 +145,15 @@ class SyncEngine {
     }
   }
 
-  async pushMutations(userId) {
+  async pushMutations(
+    userId,
+    forceRetry = false
+  ) {
     const pendingMutations =
-      await outbox.getPendingMutations(userId);
+      await outbox.getPendingMutations(
+        userId,
+        { forceRetry }
+      );
 
     if (!pendingMutations.length) {
       return;
@@ -178,8 +188,8 @@ class SyncEngine {
         const response = await api.post(
           '/api/sync/push',
           {
-            mutations,
             device_id: outbox.deviceId,
+            mutations,
           }
         );
 
@@ -225,12 +235,13 @@ class SyncEngine {
 
           await outbox.markAsFailed(
             outboxItem.id,
-            result.error || 'Mutation failed'
+            result.error ||
+              'Server rejected mutation'
           );
         }
       } catch (error) {
         for (const item of batch) {
-          await outbox.markAsFailed(
+          await outbox.markForRetry(
             item.id,
             error.message || 'Network error'
           );
@@ -251,24 +262,29 @@ class SyncEngine {
       outboxItem.entity_type
     );
 
-    if (
-      !result.record ||
-      !db[tableName]
-    ) {
+    if (!db[tableName]) {
       return;
     }
 
-    if (outboxItem.operation === 'delete') {
-      if (result.record.id) {
-        await db[tableName].delete(
-          result.record.id
-        );
+    if (
+      outboxItem.operation === 'delete'
+    ) {
+      const recordId =
+        result.record?.id ||
+        outboxItem.entity_id;
+
+      if (recordId) {
+        await db[tableName].delete(recordId);
       }
 
       return;
     }
 
-    await db[tableName].put(result.record);
+    if (result.record) {
+      await db[tableName].put(
+        result.record
+      );
+    }
   }
 
   async saveConflict(
@@ -424,6 +440,9 @@ class SyncEngine {
     const pendingCount =
       await outbox.getPendingCount(userId);
 
+    const failedCount =
+      await outbox.getFailedCount(userId);
+
     const conflictCount =
       db.sync_conflicts
         ? await db.sync_conflicts.count()
@@ -432,6 +451,7 @@ class SyncEngine {
     return {
       ...this.getStatus(),
       pendingCount,
+      failedCount,
       conflictCount,
     };
   }

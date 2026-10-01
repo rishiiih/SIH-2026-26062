@@ -11,21 +11,19 @@ function Header() {
   const {
     isOnline,
     pendingCount,
+    failedCount,
     conflictCount,
     lastSyncTime,
     syncing,
   } = useSyncStatus();
 
   useEffect(() => {
-    const currentUser =
-      authService.getUser();
+    const currentUser = authService.getUser();
 
     setUser(currentUser);
 
     if (currentUser?.id) {
-      syncEngine.startAutoSync(
-        currentUser.id
-      );
+      syncEngine.startAutoSync(currentUser.id);
     }
 
     return () => {
@@ -34,13 +32,15 @@ function Header() {
   }, []);
 
   const handleSync = async () => {
-    if (!user?.id) {
-      return;
-    }
+  if (!user?.id) {
+    return;
+  }
 
-    await syncEngine.sync(user.id);
-  };
-
+  await syncEngine.sync(
+    user.id,
+    { forceRetry: true }
+  );
+};
   const handleLogout = async () => {
     await authService.logout();
     window.location.href = '/login';
@@ -72,6 +72,12 @@ function Header() {
 
         <span className="font-data-mono-md text-body-sm text-on-surface-variant">
           Pending changes: {pendingCount} queued
+        </span>
+
+        <span className="text-outline-variant">|</span>
+
+        <span className="font-data-mono-md text-body-sm text-on-surface-variant">
+          Failed retries: {failedCount}
         </span>
 
         <span className="text-outline-variant">|</span>
