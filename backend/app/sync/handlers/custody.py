@@ -2,7 +2,7 @@ from app.models.cargo import CustodyLog
 from app.sync.registry import register_handler
 
 @register_handler('custody_log')
-def handle_custody_log(db, user, operation, payload):
+def handle_custody_log(db, user, operation, payload, base_version=1):
     # We only allow 'create' operations for custody logs to prevent tampering
     if operation == 'create':
         entity_id = payload.get('id')

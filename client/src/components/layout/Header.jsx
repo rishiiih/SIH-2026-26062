@@ -1,14 +1,25 @@
 import { authService } from '../../services/auth';
 import syncEngine from '../../sync/sync-engine';
+import db from '../../db/dexie';
 import { useState, useEffect } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 function Header() {
   const [syncStatus, setSyncStatus] = useState({
-    isOnline: true,
-    pendingCount: 0,
+    isOnline: navigator.onLine,
     lastSyncTime: null
   });
   const [user, setUser] = useState(null);
+
+  // Live query automatically updates pending count whenever Dexie's outbox table changes
+  const pendingCount = useLiveQuery(
+    async () => {
+      if (!db || !db.outbox) return 0;
+      return await db.outbox.where('status').equals('pending').count();
+    },
+    [],
+    0
+  );
 
   useEffect(() => {
     const currentUser = authService.getUser();
@@ -19,14 +30,27 @@ function Header() {
       syncEngine.startAutoSync(currentUser.id);
     }
 
+    // Keep online status state accurate when internet connectivity shifts
+    const handleOnline = () => setSyncStatus((prev) => ({ ...prev, isOnline: true }));
+    const handleOffline = () => setSyncStatus((prev) => ({ ...prev, isOnline: false }));
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     return () => {
       syncEngine.stopAutoSync();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
   const loadSyncStatus = async (userId) => {
     const status = await syncEngine.getSyncStatus(userId);
-    setSyncStatus(status);
+    setSyncStatus((prev) => ({
+      ...prev,
+      isOnline: status.isOnline,
+      lastSyncTime: status.lastSyncTime
+    }));
   };
 
   const handleSync = async () => {
@@ -52,7 +76,7 @@ function Header() {
         </div>
         <span className="text-outline-variant">|</span>
         <span className="font-data-mono-md text-body-sm text-on-surface-variant">
-          Pending changes: {syncStatus.pendingCount} queued
+          Pending changes: {pendingCount ?? 0} queued
         </span>
         <span className="text-outline-variant">|</span>
         <span className="font-data-mono-md text-body-sm text-on-surface-variant">

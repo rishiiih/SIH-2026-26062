@@ -1,6 +1,23 @@
 import { NavLink } from 'react-router-dom';
+import { useEffect } from 'react';
 
 function Sidebar() {
+  useEffect(() => {
+    // Update station time every second
+    const updateTime = () => {
+      const now = new Date();
+      const timeStr = now.toISOString().slice(11, 19);
+      const timeElement = document.getElementById('station-time');
+      if (timeElement) {
+        timeElement.textContent = `${timeStr} UTC`;
+      }
+    };
+    
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
   const navItems = [
     { path: '/dashboard', icon: 'grid_view', label: 'Command dashboard' },
     { path: '/station-leader', icon: 'military_tech', label: 'Station leader' },

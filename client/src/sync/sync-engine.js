@@ -1,6 +1,7 @@
 import api from '../services/api';
 import outbox from './outbox';
 import db from '../db/dexie';
+import { authService } from '../services/auth';
 
 class SyncEngine {
   constructor() {
@@ -9,45 +10,43 @@ class SyncEngine {
     this.lastSyncTime = null;
     this.syncInterval = null;
 
-    // Listen for online/offline events
     window.addEventListener('online', () => this.handleOnline());
     window.addEventListener('offline', () => this.handleOffline());
   }
 
   handleOnline() {
     this.isOnline = true;
-    console.log('Network online - initiating sync');
-    
-    // Fetch the userId from local storage to ensure the sync has the required parameter
-    const userId = localStorage.getItem('user-id');
-    if (userId) {
-      this.sync(userId);
+    const user = authService.getUser();
+    if (user?.id) {
+      this.sync(user.id);
     }
   }
 
   handleOffline() {
     this.isOnline = false;
-    console.log('Network offline - sync paused');
   }
 
-  async sync(userId) {
-    if (this.syncInProgress || !this.isOnline) {
+  async sync(userId = authService.getUser()?.id) {
+    if (!userId || this.syncInProgress || !this.isOnline) {
+      return;
+    }
+
+    try {
+      await api.get('/api/health');
+    } catch (err) {
+      console.warn('Sync aborted: backend health check failed');
       return;
     }
 
     this.syncInProgress = true;
 
     try {
-      // Push pending mutations
       await this.pushMutations(userId);
-
-      // Pull changes from server
       await this.pullChanges(userId);
 
       this.lastSyncTime = new Date().toISOString();
-      console.log('Sync completed at:', this.lastSyncTime);
     } catch (error) {
-      console.error('Sync failed:', error);
+      console.error('Sync cycle execution error:', error);
     } finally {
       this.syncInProgress = false;
     }
@@ -55,60 +54,57 @@ class SyncEngine {
 
   async pushMutations(userId) {
     const pendingMutations = await outbox.getPendingMutations(userId);
-
-    if (pendingMutations.length === 0) {
+    if (!pendingMutations || pendingMutations.length === 0) {
       return;
     }
 
-    console.log(`Pushing ${pendingMutations.length} mutations`);
+    // Sort by priority before sending to the backend
+    pendingMutations.sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
     try {
-      // Swapped bare axios for our authenticated api instance
       const response = await api.post('/api/sync/push', {
         mutations: pendingMutations,
-        device_id: outbox.deviceId
+        device_id: localStorage.getItem('device_id') || 'browser-client'
       });
 
-      // Process results
-      for (const result of response.data.results) {
-        if (result.success) {
-          await outbox.markAsAcked(result.outbox_id);
-        } else if (result.conflict) {
-          await outbox.markAsConflict(result.outbox_id);
-        } else {
-          await outbox.markAsFailed(result.outbox_id, result.error);
+      if (response.data?.results) {
+        for (const result of response.data.results) {
+          if (result.success) {
+            await outbox.markAsAcked(result.outbox_id);
+          } else if (result.conflict) {
+            await outbox.markAsConflict(result.outbox_id);
+          } else {
+            await outbox.markAsFailed(result.outbox_id, result.error);
+          }
         }
       }
 
-      // Clear acked mutations
       await outbox.clearAckedMutations(userId);
     } catch (error) {
-      console.error('Push failed:', error);
+      console.error('Push execution failed:', error);
       throw error;
     }
   }
 
   async pullChanges(userId) {
-    const cursor = localStorage.getItem('sync-cursor') || '0';
+    const cursorKey = `sync_cursor_${userId}`;
+    const cursor = localStorage.getItem(cursorKey) || '0';
 
     try {
-      // Swapped bare axios for our authenticated api instance
-      const response = await api.post('/api/sync/pull', {
-        cursor: cursor,
-        user_id: userId
-      });
+      const response = await api.post('/api/sync/pull', { cursor });
+      const { changes, new_cursor } = response.data || {};
 
-      const { changes, new_cursor } = response.data;
-
-      // Apply changes to local database
-      for (const change of changes) {
-        await this.applyChange(change);
+      if (Array.isArray(changes)) {
+        for (const change of changes) {
+          await this.applyChange(change);
+        }
       }
 
-      // Update cursor
-      localStorage.setItem('sync-cursor', new_cursor);
+      if (new_cursor) {
+        localStorage.setItem(cursorKey, new_cursor);
+      }
     } catch (error) {
-      console.error('Pull failed:', error);
+      console.error('Pull execution failed:', error);
       throw error;
     }
   }
@@ -117,14 +113,14 @@ class SyncEngine {
     const { entity_type, operation, data } = change;
     const tableName = this.getTableName(entity_type);
 
-    if (!tableName) {
-      console.warn('Unknown entity type:', entity_type);
+    if (!tableName || !db[tableName]) {
+      console.warn('No local Dexie table mapping found for entity:', entity_type);
       return;
     }
 
     if (operation === 'create' || operation === 'update') {
       await db[tableName].put(data);
-    } else if (operation === 'delete') {
+    } else if (operation === 'delete' && data?.id) {
       await db[tableName].delete(data.id);
     }
   }
@@ -132,19 +128,19 @@ class SyncEngine {
   getTableName(entityType) {
     const mapping = {
       'user': 'users',
-      'role': 'roles',
-      'permission': 'permissions',
       'station': 'stations',
       'consignment': 'consignments',
       'consignment_item': 'consignment_items',
       'custody_scan': 'custody_scans',
       'inventory_item': 'inventory_items',
-      'inventory_batch': 'inventory_batches',
       'stock_movement': 'stock_movements',
       'asset': 'assets',
+      'maintenance_record': 'maintenance_records',
       'personnel': 'personnel',
+      'check_in': 'check_ins',
       'incident': 'incidents',
-      'audit_log': 'audit_log'
+      'incident_update': 'incident_updates',
+      'alert': 'alerts'
     };
     return mapping[entityType];
   }
@@ -176,4 +172,5 @@ class SyncEngine {
   }
 }
 
-export default new SyncEngine();
+const syncEngine = new SyncEngine();
+export default syncEngine;

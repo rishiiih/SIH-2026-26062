@@ -4,6 +4,7 @@ import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
 import Login from './pages/Login';
+import Register from './pages/Register'; // <--- 1. Import Register
 import CommandDashboard from './pages/CommandDashboard';
 import StationLeader from './pages/StationLeader';
 import EmergencyIncidents from './pages/EmergencyIncidents';
@@ -29,6 +30,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} /> {/* <--- 2. Add Register Route */}
         <Route
           path="/*"
           element={

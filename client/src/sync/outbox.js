@@ -38,11 +38,19 @@ class Outbox {
   }
 
   async getPendingMutations(userId) {
-    return await db.outbox
+    const pending = await db.outbox
       .where('user_id')
       .equals(userId)
       .and(item => item.status === 'pending')
       .toArray();
+
+    // Task 2.2 Priority Queue Sorting:
+    // Move all 'incidents' mutations to index 0, followed by standard mutations ordered by timestamp
+    return pending.sort((a, b) => {
+      if (a.entity_type === 'incidents' && b.entity_type !== 'incidents') return -1;
+      if (a.entity_type !== 'incidents' && b.entity_type === 'incidents') return 1;
+      return new Date(a.device_timestamp) - new Date(b.device_timestamp);
+    });
   }
 
   async markAsSent(outboxId) {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // <--- Added Link import
 import { authService } from '../services/auth';
 
 function Login() {
@@ -104,6 +104,16 @@ function Login() {
           </button>
         </form>
 
+        {/* Sign Up Section */}
+        <div className="mt-space-md text-center">
+          <p className="font-body-sm text-body-sm text-on-surface-variant">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-primary hover:underline font-semibold">
+              Sign Up
+            </Link>
+          </p>
+        </div>
+
         {/* Footer */}
         <div className="mt-space-lg pt-space-md border-t border-outline-variant text-center">
           <p className="font-title-sm text-title-sm text-on-surface font-semibold">DHRUV</p>
@@ -112,7 +122,6 @@ function Login() {
         </div>
 
         {/* Terminal Info */}
-
         <div className="mt-space-md pt-space-sm border-t border-outline-variant flex items-center justify-between text-on-surface-variant font-data-mono-md text-body-sm">
           <span>Terminal: IND-CMD-01</span>
           <span>v2.4.1</span>
