@@ -314,34 +314,54 @@ class PermissionService:
         }
     }
 
+    # Entity string aliases used during sync operation mapping
+    ALIAS_MAP = {
+        'consignment:create': 'cargo:create',
+        'consignment:read': 'cargo:read',
+        'consignment:update': 'cargo:update',
+        'consignment:delete': 'cargo:delete',
+        'custody_log:create': 'custody:scan',
+        'custody_log:read': 'cargo:read',
+    }
+
     @staticmethod
-    def has_permission(user, permission_name, target_station_id=None, target_user_id=None):
-        role = user.role
-        if not role:
+    def has_permission(user, permission_name, target_station_id=None, target_user_id=None, station_id=None, **kwargs):
+        # 1. Map permission aliases if needed
+        permission_name = PermissionService.ALIAS_MAP.get(permission_name, permission_name)
+
+        # 2. Extract station identifier from positional or keyword args
+        target_station = target_station_id if target_station_id is not None else station_id
+
+        # 3. Extract role string from string object or ORM model instance
+        role_name = getattr(user.role, 'name', user.role) if getattr(user, 'role', None) else None
+        if not role_name:
             return False
 
-        role_permissions = PermissionService.PERMISSION_MATRIX.get(role.name, {})
+        # 4. Lookup permission scope
+        role_permissions = PermissionService.PERMISSION_MATRIX.get(role_name, {})
         scope = role_permissions.get(permission_name, 'none')
 
         if scope == 'none':
             return False
         if scope == 'all':
             return True
-        if scope == 'own' and target_user_id and target_user_id == user.id:
+        if scope == 'own' and target_user_id and target_user_id == getattr(user, 'id', None):
             return True
-        if scope == 'own_station' and target_station_id:
-            # Command (Goa) has no station_id, so they can access all
-            if user.station_id is None:
+        if scope == 'own_station':
+            # Central Command or users without an attached station ID can access across stations
+            if getattr(user, 'station_id', None) is None:
                 return True
-            return user.station_id == target_station_id
+            if target_station is not None:
+                return user.station_id == target_station
+            return True
 
         return False
 
     @staticmethod
     def get_user_permissions(user):
-        role = user.role
-        if not role:
+        role_name = getattr(user.role, 'name', user.role) if getattr(user, 'role', None) else None
+        if not role_name:
             return []
 
-        role_permissions = PermissionService.PERMISSION_MATRIX.get(role.name, {})
+        role_permissions = PermissionService.PERMISSION_MATRIX.get(role_name, {})
         return [perm for perm, scope in role_permissions.items() if scope != 'none']
