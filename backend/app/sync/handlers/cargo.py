@@ -2,7 +2,7 @@ from app.models.cargo import Consignment
 from app.sync.registry import register_handler
 
 @register_handler('consignment')
-def handle_consignment(db, user, operation, payload):
+def handle_consignment(db, user, operation, payload, base_version=1):
     entity_id = payload.get('id')
     
     if operation == 'create':
@@ -13,7 +13,7 @@ def handle_consignment(db, user, operation, payload):
         consignment = Consignment(
             id=entity_id,
             station_id=payload.get('station_id', user.station_id),
-            version=payload.get('version', 1),
+            version=payload.get('version', base_version),
             payload=payload
         )
         db.add(consignment)
@@ -24,9 +24,9 @@ def handle_consignment(db, user, operation, payload):
         if not consignment:
             return False 
         
-        client_version = payload.get('version', 1)
+        client_version = payload.get('version', base_version)
         if client_version < consignment.version:
-            return False # Conflict! Client has outdated version.
+            return False  # Conflict! Client has outdated version.
         
         consignment.payload = payload
         consignment.version = client_version

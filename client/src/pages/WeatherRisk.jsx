@@ -1,47 +1,148 @@
-function WeatherRisk() {
+import { useEffect, useRef, useState } from 'react';
+
+import api from '../services/api';
+import db from '../db/dexie';
+
+
+export default function WeatherRisk() {
+  const [weatherData, setWeatherData] = useState([]);
+  const [isCached, setIsCached] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+
+    async function loadWeather() {
+      try {
+        const response = await api.get(
+          '/api/weather/stations'
+        );
+
+        const data =
+          response.data?.stations_weather ||
+          response.data ||
+          [];
+
+        if (!isMounted.current) {
+          return;
+        }
+
+        setWeatherData(data);
+        setIsCached(false);
+
+        if (db.cache) {
+          await db.cache.put({
+            key: 'weather_risk_cache',
+            data,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        if (!isMounted.current) {
+          return;
+        }
+
+        console.warn(
+          'Using cached weather data:',
+          error.message
+        );
+
+        if (db.cache) {
+          const cached = await db.cache.get(
+            'weather_risk_cache'
+          );
+
+          if (cached?.data) {
+            setWeatherData(cached.data);
+            setIsCached(true);
+          }
+        }
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadWeather();
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-space-lg text-on-surface">
+        Fetching station environmental telemetry...
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full pt-14 pb-10 px-gutter-lg bg-surface min-h-[calc(100vh-2.5rem)]">
-      <div className="flex flex-col w-full">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md py-space-lg mb-space-md">
-          <div>
-            <div className="flex items-center gap-space-xs mb-space-xs">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Environmental</span>
-              <span className="text-outline-variant">/</span>
-              <span className="font-data-mono-md text-label-sm text-primary font-semibold">WEATHER & RISK</span>
-            </div>
-            <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Weather Conditions & Risk Assessment</h1>
-            <p className="font-body-md text-body-md text-on-surface-variant mt-[2px]">Monitor weather forecasts, alerts on routes, and risk indicators for polar operations.</p>
-          </div>
-          <div className="flex items-center gap-space-sm self-start md:self-auto">
-            <button className="h-8 px-space-md bg-surface-container-low text-on-surface font-title-sm text-title-sm rounded-[3px] hover:bg-surface-container-high flex items-center gap-space-xs transition-colors" type="button">
-              <span className="material-symbols-outlined text-[16px]">refresh</span>
-              <span>Refresh Forecast</span>
-            </button>
-            <button className="h-8 px-space-md bg-surface-container-low text-on-surface font-title-sm text-title-sm rounded-[3px] hover:bg-surface-container-high flex items-center gap-space-xs transition-colors" type="button">
-              <span className="material-symbols-outlined text-[16px]">warning</span>
-              <span>View Alerts</span>
-            </button>
-          </div>
+    <div className="min-h-screen p-space-lg bg-surface text-on-surface">
+      <div className="flex items-center justify-between mb-space-lg">
+        <div>
+          <h1 className="text-title-lg font-title-lg">
+            Weather Risk Assessment
+          </h1>
+
+          <p className="text-body-sm text-on-surface-variant">
+            Live station environmental monitoring
+          </p>
         </div>
 
-        {/* Empty State */}
-        <section className="bg-surface-container rounded-[3px] p-space-lg">
-          <div className="flex flex-col items-center justify-center py-space-lg text-center">
-            <span className="material-symbols-outlined text-[48px] text-on-surface-variant mb-space-md">air</span>
-            <h2 className="font-headline-md text-headline-md text-on-surface mb-space-sm">Weather Data Not Configured</h2>
-            <p className="font-body-md text-body-md text-on-surface-variant max-w-md mb-space-md">
-              Weather data integration is not yet configured. Set up weather sources to display forecasts, alerts, and risk indicators for operations.
-            </p>
-            <button className="h-8 px-space-md bg-primary-container text-on-primary font-title-sm text-title-sm rounded-[3px] hover:bg-primary flex items-center gap-space-xs transition-colors" type="button">
-              <span className="material-symbols-outlined text-[16px]">settings</span>
-              <span>Configure Weather Source</span>
-            </button>
+        {isCached && (
+          <div className="px-space-sm py-space-xs bg-amber-500/20 border border-amber-500 text-amber-200 rounded-sm">
+            Showing cached offline telemetry
           </div>
-        </section>
+        )}
       </div>
+
+      {weatherData.length === 0 ? (
+        <div className="p-space-lg bg-surface-container-low border border-outline-variant rounded-sm">
+          No station weather data is available.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-space-md">
+          {weatherData.map((station) => (
+            <div
+              key={station.station_id || station.id}
+              className="p-space-md bg-surface-container border border-outline-variant rounded-sm"
+            >
+              <div className="flex items-start justify-between mb-space-md">
+                <h2 className="text-title-sm font-semibold">
+                  {station.station_name ||
+                    station.name ||
+                    'Station'}
+                </h2>
+
+                <span className="px-space-xs py-space-xs bg-red-600 text-white text-xs rounded-sm">
+                  {station.risk_level || 'LOW'}
+                </span>
+              </div>
+
+              <div className="space-y-space-xs text-body-sm">
+                <div className="flex justify-between">
+                  <span>Temperature</span>
+                  <strong>
+                    {station.temperature_c ?? '--'}°C
+                  </strong>
+                </div>
+
+                <div className="flex justify-between">
+                  <span>Wind speed</span>
+                  <strong>
+                    {station.wind_speed_kmh ?? '--'} km/h
+                  </strong>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-
-export default WeatherRisk;

@@ -12,7 +12,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    full_name = Column(String(255), nullable=False)
+    full_name = Column(String(255), nullable=True)
     role_id = Column(Integer, ForeignKey('roles.id'))
     station_id = Column(Integer, ForeignKey('stations.id'))
     is_active = Column(Boolean, default=True)

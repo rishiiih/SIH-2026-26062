@@ -1,6 +1,11 @@
 import api from '../services/api';
-import outbox from './outbox';
 import db from '../db/dexie';
+import outbox from './outbox';
+import { authService } from '../services/auth';
+
+const PUSH_BATCH_SIZE = 50;
+const HEALTH_INTERVAL = 15000;
+
 
 class SyncEngine {
   constructor() {
@@ -8,154 +13,404 @@ class SyncEngine {
     this.syncInProgress = false;
     this.lastSyncTime = null;
     this.syncInterval = null;
+    this.healthInterval = null;
+    this.listeners = new Set();
 
-    // Listen for online/offline events
-    window.addEventListener('online', () => this.handleOnline());
-    window.addEventListener('offline', () => this.handleOffline());
+    window.addEventListener(
+      'online',
+      () => this.handleOnline()
+    );
+
+    window.addEventListener(
+      'offline',
+      () => this.handleOffline()
+    );
+
+    this.startHealthMonitor();
+  }
+
+  subscribe(listener) {
+    this.listeners.add(listener);
+
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  notify() {
+    const snapshot = this.getStatus();
+
+    this.listeners.forEach((listener) => {
+      listener(snapshot);
+    });
+  }
+
+  getStatus() {
+    return {
+      isOnline: this.isOnline,
+      syncing: this.syncInProgress,
+      lastSyncTime: this.lastSyncTime,
+    };
+  }
+
+  async checkHealth(shouldSync = true) {
+    try {
+      await api.get('/api/health');
+
+      const wasOffline = !this.isOnline;
+      this.isOnline = true;
+      this.notify();
+
+      if (shouldSync && wasOffline) {
+        const user = authService.getUser();
+
+        if (user?.id) {
+          await this.sync(user.id);
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.isOnline = false;
+      this.notify();
+      return false;
+    }
+  }
+
+  startHealthMonitor() {
+    if (this.healthInterval) {
+      clearInterval(this.healthInterval);
+    }
+
+    this.healthInterval = setInterval(
+      () => {
+        this.checkHealth(true);
+      },
+      HEALTH_INTERVAL
+    );
   }
 
   handleOnline() {
     this.isOnline = true;
-    console.log('Network online - initiating sync');
-    
-    // Fetch the userId from local storage to ensure the sync has the required parameter
-    const userId = localStorage.getItem('user-id');
-    if (userId) {
-      this.sync(userId);
+    this.notify();
+
+    const user = authService.getUser();
+
+    if (user?.id) {
+      this.sync(user.id);
     }
   }
 
   handleOffline() {
     this.isOnline = false;
-    console.log('Network offline - sync paused');
+    this.notify();
   }
 
-  async sync(userId) {
-    if (this.syncInProgress || !this.isOnline) {
+  async sync(
+    userId = authService.getUser()?.id
+  ) {
+    if (!userId || this.syncInProgress) {
       return;
     }
 
+    if (!this.isOnline) {
+      const healthy = await this.checkHealth(false);
+
+      if (!healthy) {
+        return;
+      }
+    }
+
     this.syncInProgress = true;
+    this.notify();
 
     try {
-      // Push pending mutations
       await this.pushMutations(userId);
-
-      // Pull changes from server
       await this.pullChanges(userId);
 
-      this.lastSyncTime = new Date().toISOString();
-      console.log('Sync completed at:', this.lastSyncTime);
+      this.lastSyncTime =
+        new Date().toISOString();
     } catch (error) {
-      console.error('Sync failed:', error);
+      console.error(
+        'Sync cycle failed:',
+        error
+      );
     } finally {
       this.syncInProgress = false;
+      this.notify();
     }
   }
 
   async pushMutations(userId) {
-    const pendingMutations = await outbox.getPendingMutations(userId);
+    const pendingMutations =
+      await outbox.getPendingMutations(userId);
 
-    if (pendingMutations.length === 0) {
+    if (!pendingMutations.length) {
       return;
     }
 
-    console.log(`Pushing ${pendingMutations.length} mutations`);
+    for (
+      let index = 0;
+      index < pendingMutations.length;
+      index += PUSH_BATCH_SIZE
+    ) {
+      const batch = pendingMutations.slice(
+        index,
+        index + PUSH_BATCH_SIZE
+      );
 
-    try {
-      // Swapped bare axios for our authenticated api instance
-      const response = await api.post('/api/sync/push', {
-        mutations: pendingMutations,
-        device_id: outbox.deviceId
-      });
+      const mutations = batch.map((item) => ({
+        id: String(item.id),
+        entity_type: item.entity_type,
+        entity_id: item.entity_id,
+        operation: item.operation,
+        payload: item.payload,
+        base_version:
+          item.base_version ??
+          item.payload?.base_version ??
+          0,
+        idempotency_key: item.idempotency_key,
+        device_timestamp: item.device_timestamp,
+        priority: item.priority || 0,
+      }));
 
-      // Process results
-      for (const result of response.data.results) {
-        if (result.success) {
-          await outbox.markAsAcked(result.outbox_id);
-        } else if (result.conflict) {
-          await outbox.markAsConflict(result.outbox_id);
-        } else {
-          await outbox.markAsFailed(result.outbox_id, result.error);
+      try {
+        const response = await api.post(
+          '/api/sync/push',
+          {
+            mutations,
+            device_id: outbox.deviceId,
+          }
+        );
+
+        const results =
+          response.data?.results || [];
+
+        for (const result of results) {
+          const outboxItem = batch.find(
+            (item) =>
+              String(item.id) ===
+              String(result.outbox_id)
+          );
+
+          if (!outboxItem) {
+            continue;
+          }
+
+          if (result.success) {
+            await this.applySuccessfulPush(
+              outboxItem,
+              result
+            );
+
+            await outbox.markAsAcked(
+              outboxItem.id
+            );
+
+            continue;
+          }
+
+          if (result.conflict) {
+            await this.saveConflict(
+              outboxItem,
+              result
+            );
+
+            await outbox.markAsConflict(
+              outboxItem.id
+            );
+
+            continue;
+          }
+
+          await outbox.markAsFailed(
+            outboxItem.id,
+            result.error || 'Mutation failed'
+          );
         }
+      } catch (error) {
+        for (const item of batch) {
+          await outbox.markAsFailed(
+            item.id,
+            error.message || 'Network error'
+          );
+        }
+
+        throw error;
+      }
+    }
+
+    await outbox.clearAckedMutations(userId);
+  }
+
+  async applySuccessfulPush(
+    outboxItem,
+    result
+  ) {
+    const tableName = this.getTableName(
+      outboxItem.entity_type
+    );
+
+    if (
+      !result.record ||
+      !db[tableName]
+    ) {
+      return;
+    }
+
+    if (outboxItem.operation === 'delete') {
+      if (result.record.id) {
+        await db[tableName].delete(
+          result.record.id
+        );
       }
 
-      // Clear acked mutations
-      await outbox.clearAckedMutations(userId);
-    } catch (error) {
-      console.error('Push failed:', error);
-      throw error;
+      return;
     }
+
+    await db[tableName].put(result.record);
+  }
+
+  async saveConflict(
+    outboxItem,
+    result
+  ) {
+    if (!db.sync_conflicts) {
+      return;
+    }
+
+    await db.sync_conflicts.add({
+      outbox_id: outboxItem.id,
+      entity_type: outboxItem.entity_type,
+      entity_id:
+        outboxItem.entity_id ||
+        outboxItem.payload?.id,
+      operation: outboxItem.operation,
+      local: outboxItem.payload,
+      server:
+        result.server_data ||
+        result.server_record ||
+        result.record ||
+        null,
+      error_message:
+        result.error ||
+        'Version conflict detected',
+      created_at: new Date().toISOString(),
+    });
   }
 
   async pullChanges(userId) {
-    const cursor = localStorage.getItem('sync-cursor') || '0';
+    const cursorKey =
+      `sync_cursor_${userId}`;
 
-    try {
-      // Swapped bare axios for our authenticated api instance
-      const response = await api.post('/api/sync/pull', {
-        cursor: cursor,
-        user_id: userId
-      });
+    let cursor =
+      localStorage.getItem(cursorKey) || '0';
 
-      const { changes, new_cursor } = response.data;
+    let hasMore = true;
 
-      // Apply changes to local database
+    while (hasMore) {
+      const response = await api.post(
+        '/api/sync/pull',
+        { cursor }
+      );
+
+      const data = response.data || {};
+      const changes = data.changes || [];
+
       for (const change of changes) {
         await this.applyChange(change);
       }
 
-      // Update cursor
-      localStorage.setItem('sync-cursor', new_cursor);
-    } catch (error) {
-      console.error('Pull failed:', error);
-      throw error;
+      const newCursor =
+        data.new_cursor ?? cursor;
+
+      localStorage.setItem(
+        cursorKey,
+        String(newCursor)
+      );
+
+      hasMore =
+        Boolean(data.has_more) &&
+        String(newCursor) !== String(cursor);
+
+      cursor = String(newCursor);
     }
   }
 
   async applyChange(change) {
-    const { entity_type, operation, data } = change;
-    const tableName = this.getTableName(entity_type);
+    const {
+      entity_type: entityType,
+      operation,
+      data,
+    } = change;
 
-    if (!tableName) {
-      console.warn('Unknown entity type:', entity_type);
+    const tableName =
+      this.getTableName(entityType);
+
+    if (
+      !tableName ||
+      !db[tableName] ||
+      !data
+    ) {
       return;
     }
 
-    if (operation === 'create' || operation === 'update') {
+    if (
+      operation === 'create' ||
+      operation === 'update' ||
+      operation === 'snapshot'
+    ) {
       await db[tableName].put(data);
-    } else if (operation === 'delete') {
+      return;
+    }
+
+    if (
+      operation === 'delete' &&
+      data.id
+    ) {
       await db[tableName].delete(data.id);
     }
   }
 
   getTableName(entityType) {
     const mapping = {
-      'user': 'users',
-      'role': 'roles',
-      'permission': 'permissions',
-      'station': 'stations',
-      'consignment': 'consignments',
-      'consignment_item': 'consignment_items',
-      'custody_scan': 'custody_scans',
-      'inventory_item': 'inventory_items',
-      'inventory_batch': 'inventory_batches',
-      'stock_movement': 'stock_movements',
-      'asset': 'assets',
-      'personnel': 'personnel',
-      'incident': 'incidents',
-      'audit_log': 'audit_log'
+      user: 'users',
+      station: 'stations',
+      consignment: 'consignments',
+      consignment_item: 'consignment_items',
+      custody_scan: 'custody_scans',
+      custody_log: 'custody_scans',
+      inventory_item: 'inventory_items',
+      stock_movement: 'stock_movements',
+      asset: 'assets',
+      maintenance_record: 'maintenance_records',
+      personnel: 'personnel',
+      check_in: 'check_ins',
+      incident: 'incidents',
+      incidents: 'incidents',
+      incident_update: 'incident_updates',
+      alert: 'alerts',
     };
-    return mapping[entityType];
+
+    return mapping[entityType] || entityType;
   }
 
-  startAutoSync(userId, intervalMs = 60000) {
+  startAutoSync(
+    userId,
+    intervalMs = 60000
+  ) {
     this.stopAutoSync();
-    this.syncInterval = setInterval(() => {
-      if (this.isOnline) {
-        this.sync(userId);
-      }
-    }, intervalMs);
+
+    this.syncInterval = setInterval(
+      () => {
+        if (this.isOnline) {
+          this.sync(userId);
+        }
+      },
+      intervalMs
+    );
+
+    this.sync(userId);
   }
 
   stopAutoSync() {
@@ -166,14 +421,23 @@ class SyncEngine {
   }
 
   async getSyncStatus(userId) {
-    const pendingCount = await outbox.getPendingCount(userId);
+    const pendingCount =
+      await outbox.getPendingCount(userId);
+
+    const conflictCount =
+      db.sync_conflicts
+        ? await db.sync_conflicts.count()
+        : 0;
+
     return {
-      isOnline: this.isOnline,
-      syncInProgress: this.syncInProgress,
-      lastSyncTime: this.lastSyncTime,
-      pendingCount
+      ...this.getStatus(),
+      pendingCount,
+      conflictCount,
     };
   }
 }
 
-export default new SyncEngine();
+
+const syncEngine = new SyncEngine();
+
+export default syncEngine;

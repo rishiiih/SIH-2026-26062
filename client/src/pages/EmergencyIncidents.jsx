@@ -1,73 +1,174 @@
-function EmergencyIncidents() {
-  const incidents = []; // Empty - no incidents yet
+import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import db from '../db/dexie';
+import { saveAndQueue } from '../sync/mutations';
+
+export default function EmergencyIncidents() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    severity: 'Warning'
+  });
+
+  // Query local incidents in real-time
+  const incidents = useLiveQuery(
+    async () => {
+      if (!db || !db.incidents) return [];
+      return await db.incidents.orderBy('created_at').reverse().toArray();
+    },
+    [],
+    []
+  );
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.title) return;
+
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const newIncident = {
+      id: crypto.randomUUID(),
+      title: formData.title,
+      description: formData.description,
+      severity: formData.severity,
+      status: 'OPEN',
+      station_id: user.station_id || 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    // Save locally and jump outbox priority queue
+    await saveAndQueue('incidents', newIncident, 'create');
+
+    setFormData({ title: '', description: '', severity: 'Warning' });
+    setIsOpen(false);
+  };
 
   return (
-    <div className="w-full pt-14 pb-10 px-gutter-lg bg-surface min-h-[calc(100vh-2.5rem)]">
-      <div className="flex flex-col w-full">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md py-space-lg mb-space-md">
-          <div>
-            <div className="flex items-center gap-space-xs mb-space-xs">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Safety & Response</span>
-              <span className="text-outline-variant">/</span>
-              <span className="font-data-mono-md text-label-sm text-error font-semibold">EMERGENCY & INCIDENTS</span>
-            </div>
-            <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Emergency Response System</h1>
-            <p className="font-body-md text-body-md text-on-surface-variant mt-[2px]">Raise, acknowledge, and respond to emergency incidents with checklists, escalation timers, and offline SOS capability.</p>
-          </div>
-          <div className="flex items-center gap-space-sm self-start md:self-auto">
-            <button className="h-8 px-space-md bg-error text-on-error font-title-sm text-title-sm rounded-[3px] hover:bg-error-container hover:text-on-error-container flex items-center gap-space-xs transition-colors" type="button">
-              <span className="material-symbols-outlined text-[16px]">add_alert</span>
-              <span>Raise Incident</span>
-            </button>
-            <button className="h-8 px-space-md bg-surface-container-low text-on-surface font-title-sm text-title-sm rounded-[3px] hover:bg-surface-container-high flex items-center gap-space-xs transition-colors" type="button">
-              <span className="material-symbols-outlined text-[16px]">sos</span>
-              <span>Offline SOS</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Empty State */}
-        {incidents.length === 0 ? (
-          <section className="bg-surface-container rounded-[3px] p-space-lg">
-            <div className="flex flex-col items-center justify-center py-space-lg text-center">
-              <span className="material-symbols-outlined text-[48px] text-secondary mb-space-md">verified_user</span>
-              <h2 className="font-headline-md text-headline-md text-on-surface mb-space-sm">No Active Incidents</h2>
-              <p className="font-body-md text-body-md text-on-surface-variant max-w-md mb-space-md">
-                No emergency incidents have been raised. All systems are nominal. Raise an incident to begin emergency response workflows.
-              </p>
-              <button className="h-8 px-space-md bg-error text-on-error font-title-sm text-title-sm rounded-[3px] hover:bg-error-container hover:text-on-error-container flex items-center gap-space-xs transition-colors" type="button">
-                <span className="material-symbols-outlined text-[16px]">add_alert</span>
-                <span>Raise First Incident</span>
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section className="bg-surface-container rounded-[3px] overflow-hidden">
-            <div className="px-space-md py-space-sm bg-surface-container-high flex items-center justify-between">
-              <div className="flex items-center gap-space-xs">
-                <span className="material-symbols-outlined text-[18px] text-error">fmd_bad</span>
-                <h2 className="font-headline-sm text-headline-sm text-on-surface">Active Incidents</h2>
-              </div>
-              <span className="px-space-xs py-[2px] bg-error-container text-on-error-container font-data-mono-md text-label-sm rounded-[3px]">{incidents.length} ACTIVE</span>
-            </div>
-            <div className="p-space-md space-y-space-md">
-              {incidents.map((incident) => (
-                <div key={incident.id} className="bg-surface-container-lowest p-space-md rounded-[3px]">
-                  <div className="flex items-center justify-between gap-space-xs mb-space-xs">
-                    <span className="font-data-mono-md text-body-sm font-bold text-error">{incident.id}</span>
-                    <span className="font-label-sm text-label-sm px-space-xs py-[2px] bg-error-container text-on-error-container font-semibold rounded-[3px]">{incident.severity}</span>
-                  </div>
-                  <h4 className="font-title-sm text-title-sm text-on-surface font-semibold">{incident.title}</h4>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-space-xs">{incident.description}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+  <div className="p-6 max-w-6xl mx-auto space-y-6">
+    {/* Header Section */}
+    <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Emergency & Incident Operations</h1>
+        <p className="text-sm text-gray-600">
+          Raise crisis alerts and track station safety status offline.
+        </p>
       </div>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-md shadow flex items-center gap-2 cursor-pointer transition-colors"
+        type="button"
+      >
+        <span className="material-symbols-outlined text-[20px]">warning</span>
+        <span>Raise Incident (SOS)</span>
+      </button>
     </div>
-  );
-}
 
-export default EmergencyIncidents;
+    {/* Incident List */}
+    <div className="space-y-3">
+      {!incidents || incidents.length === 0 ? (
+        <div className="p-8 bg-gray-50 border border-gray-200 rounded-md text-center text-gray-600">
+          No emergency incidents active. All stations operating nominally.
+        </div>
+      ) : (
+        incidents.map((incident) => (
+          <div
+            key={incident.id}
+            className={`p-4 bg-white border rounded-md shadow-sm ${
+              incident.severity === 'Critical' ? 'border-red-500 bg-red-50/20' : 'border-gray-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2 py-0.5 text-xs font-bold rounded uppercase ${
+                    incident.severity === 'Critical'
+                      ? 'bg-red-100 text-red-700'
+                      : incident.severity === 'Warning'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}
+                >
+                  {incident.severity}
+                </span>
+                <h3 className="text-base font-semibold text-gray-900">{incident.title}</h3>
+              </div>
+              <span className="text-xs text-gray-500 font-mono">
+                {incident.created_at ? new Date(incident.created_at).toLocaleString() : ''}
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 mt-2">{incident.description}</p>
+          </div>
+        ))
+      )}
+    </div>
+
+    {/* Modal Form */}
+    {isOpen && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border border-gray-200 p-6 rounded-md w-full max-w-lg space-y-4 text-gray-900 shadow-xl"
+        >
+          <h2 className="text-xl font-bold text-red-600 flex items-center gap-2">
+            <span className="material-symbols-outlined">warning</span>
+            Raise Emergency Incident
+          </h2>
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Incident Title</label>
+            <input
+              type="text"
+              required
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder="e.g. Generator 2 Power Failure"
+              className="w-full h-9 px-3 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Severity</label>
+            <select
+              value={formData.severity}
+              onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
+              className="w-full h-9 px-3 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              <option value="Critical">Critical (Immediate Evac / Hazard)</option>
+              <option value="Warning">Warning (Operations Impaired)</option>
+              <option value="Info">Info (Logistical Advisory)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Description</label>
+            <textarea
+              rows={3}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Provide situational overview and active risks..."
+              className="w-full p-3 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="h-9 px-4 bg-gray-100 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="h-9 px-4 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-md transition-colors"
+            >
+              Dispatch Alert
+            </button>
+          </div>
+        </form>
+      </div>
+    )}
+  </div>
+);
+}
