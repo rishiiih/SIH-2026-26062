@@ -1,33 +1,36 @@
-from app import db
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.db import Base
 
-class Role(db.Model):
+class Role(Base):
     __tablename__ = 'roles'
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
-    description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime(timezone=True), default=db.func.current_timestamp())
-    updated_at = db.Column(db.DateTime(timezone=True), default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+    id = Column(Integer, primary_key=True)
+    name = Column(String(50), unique=True, nullable=False)
+    description = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.current_timestamp())
+    updated_at = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
-    permissions = db.relationship('RolePermission', back_populates='role', cascade='all, delete-orphan')
-    users = db.relationship('User', back_populates='role')
+    permissions = relationship('RolePermission', back_populates='role', cascade='all, delete-orphan')
+    users = relationship('User', back_populates='role')
 
-class Permission(db.Model):
+class Permission(Base):
     __tablename__ = 'permissions'
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    description = db.Column(db.Text)
-    resource = db.Column(db.String(50), nullable=False)
-    action = db.Column(db.String(50), nullable=False)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text)
+    resource = Column(String(50), nullable=False)
+    action = Column(String(50), nullable=False)
 
-    role_permissions = db.relationship('RolePermission', back_populates='permission')
+    role_permissions = relationship('RolePermission', back_populates='permission')
 
-class RolePermission(db.Model):
+class RolePermission(Base):
     __tablename__ = 'role_permissions'
 
-    role_id = db.Column(db.Integer, db.ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True)
-    permission_id = db.Column(db.Integer, db.ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
+    role_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True)
+    permission_id = Column(Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
 
-    role = db.relationship('Role', back_populates='permissions')
-    permission = db.relationship('Permission', back_populates='role_permissions')
+    role = relationship('Role', back_populates='permissions')
+    permission = relationship('Permission', back_populates='role_permissions')

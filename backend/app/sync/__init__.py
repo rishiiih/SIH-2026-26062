@@ -1,0 +1,1 @@
+from app.sync.handlers import cargo
