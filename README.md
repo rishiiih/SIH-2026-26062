@@ -104,7 +104,7 @@ python -m app.cli create-admin
 python run.py
 ```
 
-Backend will run on `http://localhost:5000`
+Backend will run on `http://localhost:5001`
 
 ### 2. Frontend Setup
 
@@ -137,7 +137,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 **Frontend (.env):**
 ```env
-VITE_API_URL=http://localhost:5000
+VITE_API_URL=http://localhost:5001
 ```
 
 ## Database Migrations
@@ -174,7 +174,7 @@ npm test
 ### Backend
 ```bash
 cd backend
-gunicorn -w 4 -b 0.0.0.0:5000 run:app
+gunicorn -w 4 -b 0.0.0.0:5001 run:app
 ```
 
 ### Frontend

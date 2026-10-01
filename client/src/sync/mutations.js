@@ -1,32 +1,152 @@
 import db from '../db/dexie';
 import outbox from './outbox';
+import { authService } from '../services/auth';
 
-/**
- * Universal save-and-queue helper for offline-first operations.
- *
- * @param {string} entityType - Dexie table name (e.g. 'incidents', 'consignments')
- * @param {Object} record - The full entity object to save locally
- * @param {string} operation - Mutation type: 'CREATE' | 'UPDATE' | 'DELETE'
- */
-export async function saveAndQueue(entityType, record, operation = 'CREATE') {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const userId = user.id || 'test-user'; // Fallback to 'test-user' if user.id is missing
+const listeners = new Set();
 
-  return await db.transaction('rw', [db[entityType], db.outbox], async () => {
-    if (operation.toUpperCase() === 'DELETE') {
-      await db[entityType].delete(record.id);
-    } else {
-      await db[entityType].put(record);
+export function subscribeToMutations(listener) {
+  listeners.add(listener);
+
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifyListeners(mutationData) {
+  listeners.forEach((listener) => {
+    try {
+      listener(mutationData);
+    } catch (error) {
+      console.error(
+        'Error in mutation listener:',
+        error
+      );
     }
-
-    const idempotencyKey = await outbox.addMutation(
-      userId, // Ensure userId is passed correctly here
-      entityType,
-      record.id,
-      operation.toUpperCase(),
-      record
-    );
-
-    return { record, idempotencyKey };
   });
+}
+
+function getTableName(entityType) {
+  const mapping = {
+    user: 'users',
+    station: 'stations',
+    consignment: 'consignments',
+    consignment_item: 'consignment_items',
+    custody_scan: 'custody_scans',
+    inventory_item: 'inventory_items',
+    stock_movement: 'stock_movements',
+    asset: 'assets',
+    maintenance_record: 'maintenance_records',
+    personnel: 'personnel',
+    check_in: 'check_ins',
+    incident: 'incidents',
+    incidents: 'incidents',
+    incident_update: 'incident_updates',
+    alert: 'alerts',
+  };
+
+  return mapping[entityType] || entityType;
+}
+
+export async function saveAndQueue(
+  entityType,
+  record,
+  operation = 'create',
+  { priority = 0 } = {}
+) {
+  const user = authService.getUser();
+  const userId = user?.id || 'anonymous';
+
+  const stationId =
+    record.station_id ||
+    user?.station_id ||
+    null;
+
+  const recordId =
+    record.id ||
+    crypto.randomUUID();
+
+  const tableName = getTableName(entityType);
+  const table = db[tableName];
+
+  if (!table) {
+    throw new Error(
+      `No Dexie table found for entity type: ${entityType}`
+    );
+  }
+
+  const existingRecord = record.id
+    ? await table.get(record.id)
+    : null;
+
+  const baseVersion =
+    operation === 'update'
+      ? (
+          existingRecord?.version ??
+          record.base_version ??
+          record.version ??
+          0
+        )
+      : 0;
+
+  const version =
+    operation === 'create'
+      ? 1
+      : (
+          existingRecord?.version ??
+          record.version ??
+          1
+        );
+
+  const now = new Date().toISOString();
+
+  const processedRecord = {
+    ...record,
+    id: recordId,
+    station_id: stationId,
+    version,
+    updated_at: now,
+  };
+
+  const payload = {
+    ...processedRecord,
+    base_version: baseVersion,
+  };
+
+  let idempotencyKey;
+
+  await db.transaction(
+    'rw',
+    [table, db.outbox],
+    async () => {
+      if (operation === 'delete') {
+        await table.delete(recordId);
+      } else {
+        await table.put(processedRecord);
+      }
+
+      idempotencyKey = await outbox.addMutation(
+        userId,
+        entityType,
+        recordId,
+        operation,
+        payload,
+        {
+          priority,
+          baseVersion,
+        }
+      );
+    }
+  );
+
+  const mutationData = {
+    entityType,
+    entityId: recordId,
+    operation,
+    payload,
+    idempotencyKey,
+  };
+
+  notifyListeners(mutationData);
+
+  return mutationData;
 }

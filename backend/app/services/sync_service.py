@@ -42,6 +42,7 @@ class SyncService:
             entity_id=str(entity_id),
             station_id=station_id,
             operation=operation,
+            data=serialized,
             serialized_data=serialized,
         )
 
@@ -76,8 +77,12 @@ class SyncService:
 
         is_testing = (
             "pytest" in sys.modules
-            or any("pytest" in argument for argument in sys.argv)
-            or os.environ.get("PYTEST_CURRENT_TEST") is not None
+            or any(
+                "pytest" in argument
+                for argument in sys.argv
+            )
+            or os.environ.get("PYTEST_CURRENT_TEST")
+            is not None
         )
 
         role_name = getattr(
@@ -89,37 +94,59 @@ class SyncService:
         is_admin = (
             getattr(user, "is_superuser", False)
             or getattr(user, "is_admin", False)
-            or role_name.upper() in {
+            or role_name.upper()
+            in {
                 "ADMIN",
                 "SUPER_ADMIN",
             }
         )
 
         for mutation in normalized_mutations:
-            outbox_id = mutation.get("id") or mutation.get("outbox_id")
+            outbox_id = (
+                mutation.get("id")
+                or mutation.get("outbox_id")
+            )
+
             entity_type = mutation.get("entity_type")
             operation = mutation.get("operation")
             payload = mutation.get("payload", {}) or {}
-            base_version = mutation.get("base_version", 1)
-            idempotency_key = mutation.get("idempotency_key")
-            device_timestamp = mutation.get("device_timestamp")
+            base_version = mutation.get(
+                "base_version",
+                payload.get("base_version", 1),
+            )
+            idempotency_key = mutation.get(
+                "idempotency_key"
+            )
+            device_timestamp = mutation.get(
+                "device_timestamp"
+            )
 
             if idempotency_key:
                 existing_receipt = (
                     db.query(SyncReceipt)
                     .filter(
-                        SyncReceipt.idempotency_key == idempotency_key
+                        SyncReceipt.idempotency_key
+                        == idempotency_key
                     )
                     .first()
                 )
 
                 if existing_receipt:
-                    results.append(existing_receipt.result)
+                    results.append(
+                        existing_receipt.result
+                    )
                     continue
 
             conflict = False
             record = None
+            server_data = None
             server_version = None
+            entity_id = (
+                payload.get("id")
+                or payload.get("code")
+                or mutation.get("entity_id")
+                or outbox_id
+            )
 
             try:
                 with db.begin_nested():
@@ -131,13 +158,19 @@ class SyncService:
                             "success": False,
                             "conflict": False,
                             "error": (
-                                f"Unknown entity_type: {entity_type}"
+                                "Unknown entity_type: "
+                                f"{entity_type}"
                             ),
+                            "server_data": None,
                         }
 
                     else:
                         permission_prefix = (
-                            getattr(handler, "permission_prefix", None)
+                            getattr(
+                                handler,
+                                "permission_prefix",
+                                None,
+                            )
                             or entity_type
                         )
 
@@ -154,7 +187,8 @@ class SyncService:
                         ):
                             try:
                                 has_permission = (
-                                    PermissionService.has_permission(
+                                    PermissionService
+                                    .has_permission(
                                         user,
                                         required_permission,
                                         station_id=user_station_id,
@@ -179,16 +213,10 @@ class SyncService:
                                     "Permission denied for "
                                     f"{required_permission}"
                                 ),
+                                "server_data": None,
                             }
 
                         else:
-                            entity_id = (
-                                payload.get("id")
-                                or payload.get("code")
-                                or mutation.get("entity_id")
-                                or outbox_id
-                            )
-
                             is_ledger = getattr(
                                 handler,
                                 "is_ledger",
@@ -196,12 +224,14 @@ class SyncService:
                             )
 
                             if hasattr(handler, "apply"):
-                                handler_result = handler.apply(
-                                    db,
-                                    user,
-                                    operation,
-                                    payload,
-                                    base_version,
+                                handler_result = (
+                                    handler.apply(
+                                        db,
+                                        user,
+                                        operation,
+                                        payload,
+                                        base_version,
+                                    )
                                 )
 
                             elif callable(handler):
@@ -216,31 +246,49 @@ class SyncService:
                             else:
                                 handler_result = False
 
-                            if isinstance(handler_result, dict):
+                            if isinstance(
+                                handler_result,
+                                dict,
+                            ):
                                 success = handler_result.get(
                                     "success",
                                     False,
                                 )
-                                record = handler_result.get("record")
-                                conflict = handler_result.get(
-                                    "conflict",
-                                    False,
+                                record = handler_result.get(
+                                    "record"
                                 )
-                                server_version = handler_result.get(
-                                    "server_version"
+                                server_data = (
+                                    handler_result.get(
+                                        "server_data"
+                                    )
+                                )
+                                conflict = (
+                                    handler_result.get(
+                                        "conflict",
+                                        False,
+                                    )
+                                )
+                                server_version = (
+                                    handler_result.get(
+                                        "server_version"
+                                    )
                                 )
 
                             else:
-                                success = bool(handler_result)
+                                success = bool(
+                                    handler_result
+                                )
                                 record = payload
                                 conflict = (
                                     not success
                                     if not is_ledger
                                     else False
                                 )
-                                server_version = payload.get(
-                                    "version",
-                                    base_version,
+                                server_version = (
+                                    payload.get(
+                                        "version",
+                                        base_version,
+                                    )
                                 )
 
                             if success:
@@ -248,18 +296,21 @@ class SyncService:
                                     server_version or 1
                                 ) + 1
 
-                                # Use the entity's station, not only the
-                                # station of the pushing user.
-                                change_station_id = payload.get(
-                                    "station_id",
-                                    user_station_id,
+                                change_station_id = (
+                                    payload.get(
+                                        "station_id",
+                                        user_station_id,
+                                    )
                                 )
 
                                 change = ChangeLog(
                                     entity_type=entity_type,
                                     entity_id=str(entity_id),
-                                    station_id=change_station_id,
+                                    station_id=(
+                                        change_station_id
+                                    ),
                                     operation=operation,
+                                    data=record,
                                     serialized_data=record,
                                 )
 
@@ -278,7 +329,9 @@ class SyncService:
                                                 f"{entity_type}"
                                             ),
                                             details={
-                                                "entity_id": entity_id,
+                                                "entity_id": (
+                                                    entity_id
+                                                ),
                                                 "device_timestamp": (
                                                     device_timestamp
                                                 ),
@@ -293,17 +346,50 @@ class SyncService:
                                     "conflict": False,
                                     "error": None,
                                     "record": record,
-                                    "server_version": server_version,
+                                    "server_data": None,
+                                    "server_version": (
+                                        server_version
+                                    ),
                                 }
 
                             else:
+                                if conflict:
+                                    model = getattr(
+                                        handler,
+                                        "model",
+                                        None,
+                                    )
+
+                                    if model is not None:
+                                        server_record = (
+                                            db.query(model)
+                                            .filter(
+                                                model.id
+                                                == entity_id
+                                            )
+                                            .first()
+                                        )
+
+                                        if server_record is not None:
+                                            server_data = (
+                                                handler.serialize(
+                                                    server_record
+                                                )
+                                            )
+
                                 error_message = (
-                                    "Version mismatch or handler rejection"
+                                    "Version mismatch or "
+                                    "handler rejection"
                                     if conflict
-                                    else "Mutation execution failed"
+                                    else (
+                                        "Mutation execution "
+                                        "failed"
+                                    )
                                 )
 
-                                raise ValueError(error_message)
+                                raise ValueError(
+                                    error_message
+                                )
 
             except Exception as error:
                 mutation_result = {
@@ -312,12 +398,14 @@ class SyncService:
                     "conflict": conflict,
                     "error": str(error),
                     "record": record,
+                    "server_data": server_data,
                     "server_version": server_version,
                 }
 
             if idempotency_key:
                 receipt = SyncReceipt(
                     idempotency_key=idempotency_key,
+                    user_id=getattr(user, "id", None),
                     result=mutation_result,
                 )
 
@@ -340,8 +428,17 @@ class SyncService:
         except (ValueError, TypeError):
             cursor_seq = 0
 
-        max_seq = db.query(func.max(ChangeLog.seq)).scalar() or 0
-        user_station_id = getattr(user, "station_id", None)
+        max_seq = (
+            db.query(func.max(ChangeLog.seq))
+            .scalar()
+            or 0
+        )
+
+        user_station_id = getattr(
+            user,
+            "station_id",
+            None,
+        )
 
         role_name = getattr(
             getattr(user, "role", None),
@@ -360,25 +457,29 @@ class SyncService:
             handlers = get_all_handlers()
 
             for entity_type, handler in handlers.items():
-                if not getattr(handler, "model", None):
+                model = getattr(handler, "model", None)
+
+                if model is None:
                     continue
 
-                query = db.query(handler.model)
+                query = db.query(model)
 
                 if (
-                    hasattr(handler.model, "station_id")
+                    hasattr(model, "station_id")
                     and user_station_id
                     and not is_command_user
                 ):
                     query = query.filter(
-                        (handler.model.station_id == user_station_id)
-                        | (handler.model.station_id.is_(None))
+                        (model.station_id == user_station_id)
+                        | (model.station_id.is_(None))
                     )
 
                 records = query.all()
 
                 for record in records:
-                    serialized = handler.serialize(record)
+                    serialized = handler.serialize(
+                        record
+                    )
 
                     changes.append(
                         {
@@ -420,17 +521,24 @@ class SyncService:
                     "seq": log.seq,
                     "entity_type": log.entity_type,
                     "operation": log.operation,
-                    "data": log.serialized_data or {
-                        "id": log.entity_id
-                    },
+                    "data": (
+                        log.data
+                        or log.serialized_data
+                        or {"id": log.entity_id}
+                    ),
                 }
             )
 
-            highest_seq = max(highest_seq, log.seq)
+            highest_seq = max(
+                highest_seq,
+                log.seq,
+            )
 
         sync_cursor = (
             db.query(SyncCursor)
-            .filter(SyncCursor.user_id == user.id)
+            .filter(
+                SyncCursor.user_id == user.id
+            )
             .first()
         )
 
@@ -441,8 +549,14 @@ class SyncService:
             )
             db.add(sync_cursor)
         else:
-            sync_cursor.last_pull_version = highest_seq
+            sync_cursor.last_pull_version = (
+                highest_seq
+            )
 
         db.commit()
 
-        return changes, str(highest_seq), has_more
+        return (
+            changes,
+            str(highest_seq),
+            has_more,
+        )

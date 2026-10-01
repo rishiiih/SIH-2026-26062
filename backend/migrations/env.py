@@ -10,12 +10,7 @@ load_dotenv()
 
 # 2. Import Base and ALL models so Alembic can read them
 from app.db import Base
-import app.models.user
-import app.models.role
-import app.models.station
-import app.models.sync
-import app.models.cargo
-import app.models.audit_log
+import app.models
 
 # 3. Get the Alembic Config object
 config = context.config

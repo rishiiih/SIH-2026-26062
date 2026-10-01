@@ -15,6 +15,7 @@ class Station(Base):
     region = Column(String(20), nullable=False)
     timezone = Column(String(50), nullable=False)
     is_active = Column(Boolean, default=True)
+    next_resupply_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.current_timestamp())
 
     users = relationship('User', back_populates='station')

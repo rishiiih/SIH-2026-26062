@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 
 const db = new Dexie('DHRUV-Offline-DB');
 
-// Version 1 Schema (Preserved for migration history)
+// Version 1 Schema (Original baseline)
 db.version(1).stores({
   users: 'id, username, email, role_id, station_id, is_active, version, updated_at',
   roles: 'id, name',
@@ -24,9 +24,8 @@ db.version(1).stores({
   change_log: 'seq, entity_type, entity_id, station_id, operation'
 });
 
-// Version 2 Schema (Adds Cache and Conflict Tracking Stores)
+// Version 2 Schema (Adds idempotency_key index, cache, and sync_conflicts)
 db.version(2).stores({
-  // Retain all existing stores from version 1
   users: 'id, username, email, role_id, station_id, is_active, version, updated_at',
   roles: 'id, name',
   permissions: 'id, name, resource, action',
@@ -42,13 +41,11 @@ db.version(2).stores({
   maintenance_records: 'id, asset_id, station_id, version, updated_at',
   incidents: 'id, station_id, status, severity, version, created_at, updated_at',
   incident_updates: 'id, incident_id, station_id, version, updated_at',
-  outbox: '++id, user_id, device_id, entity_type, status, device_timestamp',
+  outbox: '++id, user_id, device_id, entity_type, status, device_timestamp, idempotency_key', // Added index here
   audit_log: 'id, user_id, entity_type, entity_id, server_timestamp',
   change_log: 'seq, entity_type, entity_id, station_id, operation',
-
-  // Added in Version 2:
-  cache: 'key', // Primary key 'key' for caching key-value JSON objects (weather, summary)
-  sync_conflicts: '++id, entity_type, entity_id' // Stores server/client sync conflict records
+  cache: 'key',
+  sync_conflicts: '++id, entity_type, entity_id'
 });
 
 export default db;
