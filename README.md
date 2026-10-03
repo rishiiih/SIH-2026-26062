@@ -21,7 +21,7 @@ DHRUV is an offline-first web platform (Progressive Web App) that lets NCPOR pla
 - **Asset Management:** Equipment register with maintenance schedules
 - **Emergency Response:** SOS workflow with escalation timers
 - **Real-time Maps:** Leaflet-based station and shipment visualization
-- **Rule-Based Alerts:** Stock levels, shipment windows, weather risks, clearance expiry
+- **Rule-Based s:** Stock levels, shipment windows, weather risks, clearance expiry
 
 ## Tech Stack
 
@@ -251,7 +251,7 @@ Conflict resolution:
 | Maitri | MAI | -70.7650 | 11.7330 | Antarctica |
 | Bharati | BHA | -69.4147 | 76.1769 | Antarctica |
 | Himadri | HIM | 78.9230 | 11.9230 | Arctic |
-| Goa Command | GOA | 15.4989 | 73.8278 | India |
+| INCOIS Command | GOA | 15.4989 | 73.8278 | India |
 
 ## Development Workflow
 
@@ -271,7 +271,7 @@ See [STATUS.md](STATUS.md) for detailed phase progress.
 **Phase 3 (Offline Sync):** ⏳ PARTIAL
 **Phase 4 (Personnel, Expeditions, Assets):** ⏳ NOT STARTED
 **Phase 5 (Emergency):** ⏳ NOT STARTED
-**Phase 6 (Maps, Rules, Alerts):** ⏳ NOT STARTED
+**Phase 6 (Maps, Rules, s):** ⏳ NOT STARTED
 **Phase 7 (Hardening):** ⏳ NOT STARTED
 
 ## License

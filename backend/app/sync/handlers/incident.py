@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-
 from app.models.incident import Incident
 from app.sync.registry import register_handler
 
@@ -26,6 +25,16 @@ def handle_incident(
 ):
     entity_id = payload.get("id")
 
+    # Robust station resolution: explicitly catch and reject "DEFAULT_STATION" strings or falsy values
+    raw_station = payload.get("station_id") or getattr(user, "station_id", None)
+    if not raw_station or raw_station == "DEFAULT_STATION":
+        station_id = None
+    else:
+        try:
+            station_id = int(raw_station)
+        except (ValueError, TypeError):
+            station_id = None
+
     if operation == "create":
         existing = (
             db.query(Incident)
@@ -38,11 +47,8 @@ def handle_incident(
 
         incident = Incident(
             id=entity_id,
-            station_id=payload.get(
-                "station_id",
-                user.station_id,
-            ),
-            created_by=user.id,
+            station_id=station_id,  # Safely maps to integer or None
+            created_by=str(user.id),
             type=payload.get("type", "other"),
             severity=payload.get("severity", "medium"),
             status=payload.get("status", "raised"),
@@ -78,18 +84,20 @@ def handle_incident(
             base_version,
         )
 
-        if client_version != incident.version:
+        current_version = getattr(incident, "version", 1)
+
+        if client_version != current_version:
             return {
                 "success": False,
                 "conflict": True,
                 "record": {
                     "id": incident.id,
-                    "version": incident.version,
+                    "version": current_version,
                     "status": incident.status,
                     "title": incident.title,
                     "description": incident.description,
                 },
-                "server_version": incident.version,
+                "server_version": current_version,
             }
 
         for field in (

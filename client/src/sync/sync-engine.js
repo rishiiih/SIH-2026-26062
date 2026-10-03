@@ -71,7 +71,7 @@ class SyncEngine {
       }
 
       return true;
-    } catch (error) {
+    } catch {
       this.isOnline = false;
       this.notify();
       return false;

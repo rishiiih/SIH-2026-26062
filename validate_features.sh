@@ -5,7 +5,13 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 CLIENT_DIR="$ROOT_DIR/client"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+  else
+    PYTHON_BIN="python"
+  fi
+fi
 SKIP_LINT="${SKIP_LINT:-0}"
 CHECK_API="${CHECK_API:-0}"
 
@@ -229,5 +235,18 @@ else
   fail "conflict store is not connected to the conflict page"
 fi
 
+section "3" "AI/NLP engine and incident processing"
+
+cd "$BACKEND_DIR"
+
+if ! PYTHONPATH=. "$PYTHON_BIN" -m pytest \
+  --import-mode=importlib \
+  tests/test_incidents.py -q
+then
+  fail "backend incident and AI processing tests failed"
+else
+  pass "backend incident and AI processing tests passed"
+fi
+
 printf "\n${GREEN}All requested feature checks passed.${NC}\n"
-printf "Features checked: 0A, 0B, 1, and 2.\n"
+printf "Features checked: 0A, 0B, 1, 2, and 3.\n"

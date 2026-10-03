@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import { authService } from '../../services/auth';
 import syncEngine from '../../sync/sync-engine';
 import useSyncStatus from '../../hooks/useSyncStatus';
+import { SosButton } from '../common/SosButton';
 
 
 function Header() {
-  const [user, setUser] = useState(null);
+  const user = authService.getUser();
 
   const {
     isOnline,
@@ -18,29 +19,25 @@ function Header() {
   } = useSyncStatus();
 
   useEffect(() => {
-    const currentUser = authService.getUser();
-
-    setUser(currentUser);
-
-    if (currentUser?.id) {
-      syncEngine.startAutoSync(currentUser.id);
+    if (user?.id) {
+      syncEngine.startAutoSync(user.id);
     }
 
     return () => {
       syncEngine.stopAutoSync();
     };
-  }, []);
+  }, [user?.id]);
 
   const handleSync = async () => {
-  if (!user?.id) {
-    return;
-  }
+    if (!user?.id) {
+      return;
+    }
 
-  await syncEngine.sync(
-    user.id,
-    { forceRetry: true }
-  );
-};
+    await syncEngine.sync(
+      user.id,
+      { forceRetry: true }
+    );
+  };
   const handleLogout = async () => {
     await authService.logout();
     window.location.href = '/login';
@@ -131,6 +128,13 @@ function Header() {
             person
           </span>
         </div>
+
+        <div className="flex items-center space-x-3">
+        <SosButton />
+        {/* existing network indicators & buttons */}
+        </div>
+
+        
       </div>
     </header>
   );

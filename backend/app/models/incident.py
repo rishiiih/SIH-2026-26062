@@ -1,5 +1,4 @@
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
-
 from app.db import Base
 from app.models.mixins import SyncMixin
 
@@ -29,3 +28,5 @@ class Incident(SyncMixin, Base):
         default=0,
         server_default="0",
     )
+
+

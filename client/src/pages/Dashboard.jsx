@@ -4,28 +4,33 @@ import { authService } from '../services/auth';
 import syncEngine from '../sync/sync-engine';
 
 function Dashboard() {
-  const [user, setUser] = useState(null);
+  const user = authService.getUser();
   const [syncStatus, setSyncStatus] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const currentUser = authService.getUser();
-    setUser(currentUser);
-
-    if (currentUser) {
-      loadSyncStatus(currentUser.id);
-      syncEngine.startAutoSync(currentUser.id);
+    if (!user?.id) {
+      return undefined;
     }
 
+    let cancelled = false;
+
+    const loadSyncStatus = async () => {
+      const status = await syncEngine.getSyncStatus(user.id);
+
+      if (!cancelled) {
+        setSyncStatus(status);
+      }
+    };
+
+    loadSyncStatus();
+    syncEngine.startAutoSync(user.id);
+
     return () => {
+      cancelled = true;
       syncEngine.stopAutoSync();
     };
-  }, []);
-
-  const loadSyncStatus = async (userId) => {
-    const status = await syncEngine.getSyncStatus(userId);
-    setSyncStatus(status);
-  };
+  }, [user?.id]);
 
   const handleLogout = async () => {
     await authService.logout();
