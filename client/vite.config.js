@@ -65,7 +65,7 @@ export default defineConfig({
         secure: false,
         ws: true, // Enables WebSocket proxying if using Django Channels or FastAPI WebSockets
         configure: (proxy) => {
-          proxy.on('error', (err, _req, _res) => {
+          proxy.on('error', (err) => {
             console.warn('[Vite Proxy Warning] Backend unreachable at port 5001:', err.message);
           });
         }

@@ -41,7 +41,7 @@ DHRUV is an offline-first web application designed for polar expedition logistic
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Central API + Database                        │
-│                    (Goa Command - Online)                        │
+│                    (INCOIS Command - Online)                        │
 │                                                                   │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
 │  │ Flask API    │    │  PostgreSQL  │    │  Audit Log   │      │
@@ -287,7 +287,7 @@ DHRUV is an offline-first web application designed for polar expedition logistic
 ## Deployment
 
 ### Development
-- Backend: Flask dev server (localhost:5000)
+- Backend: Flask dev server (localhost:5001)
 - Frontend: Vite dev server (localhost:5173)
 - Database: Local PostgreSQL or Supabase
 

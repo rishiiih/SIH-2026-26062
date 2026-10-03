@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes import auth, sync, cargo, weather
+from app.routes import emergency
 
 
 app = FastAPI(title="DHRUV Polar API")
@@ -40,3 +41,4 @@ app.include_router(auth.router)
 app.include_router(sync.router)
 app.include_router(cargo.router)
 app.include_router(weather.router)
+app.include_router(emergency.router)
