@@ -1,6 +1,6 @@
 # DHRUV API Documentation
 
-Base URL: `http://localhost:5000` (development)
+Base URL: `http://localhost:5001` (development)
 
 All endpoints require authentication unless noted otherwise.
 

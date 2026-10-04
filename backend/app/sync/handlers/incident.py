@@ -37,107 +37,109 @@ class IncidentHandler(EntityHandler):
                 data[date_col] = val.isoformat()
         return data
 
-    def apply(self, db, user, operation, payload, base_version=1):
-        entity_id = payload.get("id")
+    return datetime.fromisoformat(
+        value.replace("Z", "+00:00")
+    )
 
-        if operation == "create":
-            existing = db.query(Incident).filter(Incident.id == entity_id).first()
-            if existing:
-                # Idempotent upsert
-                for field in [
-                    "type", "severity", "status", "title", "description",
-                    "location_text", "lat", "lon", "escalation_level",
-                    "is_sos", "sos_category", "source", "reporter_personnel_id",
-                    "people_affected", "details", "cancel_requested_at",
-                    "cancel_requested_by", "cancel_requested_reason",
-                    "cancel_confirmed_at", "cancel_confirmed_by",
-                    "acknowledged_by", "acknowledged_at", "resolved_at"
-                ]:
-                    if field in payload:
-                        val = payload[field]
-                        if "at" in field and val:
-                            val = parse_timestamp(val)
-                        setattr(existing, field, val)
-                return True
 
-            incident = Incident(
-                id=entity_id,
-                station_id=payload.get("station_id", getattr(user, "station_id", None)),
-                created_by=getattr(user, "id", None),
-                type=payload.get("type", "UNSPEC"),
-                severity=payload.get("severity", "critical" if payload.get("is_sos") else "medium"),
-                status=payload.get("status", "raised"),
-                title=payload.get("title", "SOS Emergency"),
-                description=payload.get("description"),
-                location_text=payload.get("location_text"),
-                lat=payload.get("lat"),
-                lon=payload.get("lon"),
-                raised_at=parse_timestamp(payload.get("raised_at")),
-                escalation_level=payload.get("escalation_level", 0),
-                is_sos=payload.get("is_sos", False),
-                sos_category=payload.get("sos_category"),
-                source=payload.get("source", "manual"),
-                reporter_personnel_id=payload.get("reporter_personnel_id"),
-                people_affected=payload.get("people_affected"),
-                details=payload.get("details"),
-                cancel_requested_at=parse_timestamp(payload.get("cancel_requested_at")) if payload.get("cancel_requested_at") else None,
-                cancel_requested_by=payload.get("cancel_requested_by"),
-                cancel_requested_reason=payload.get("cancel_requested_reason"),
-                cancel_confirmed_at=parse_timestamp(payload.get("cancel_confirmed_at")) if payload.get("cancel_confirmed_at") else None,
-                cancel_confirmed_by=payload.get("cancel_confirmed_by"),
-                acknowledged_by=payload.get("acknowledged_by"),
-                acknowledged_at=parse_timestamp(payload.get("acknowledged_at")) if payload.get("acknowledged_at") else None,
-                resolved_at=parse_timestamp(payload.get("resolved_at")) if payload.get("resolved_at") else None,
-            )
-            db.add(incident)
+@register_handler("incident")
+def handle_incident(
+    db,
+    user,
+    operation,
+    payload,
+    base_version=1,
+):
+    entity_id = payload.get("id")
+
+    # Robust station resolution: explicitly catch and reject "DEFAULT_STATION" strings or falsy values
+    raw_station = payload.get("station_id") or getattr(user, "station_id", None)
+    if not raw_station or raw_station == "DEFAULT_STATION":
+        station_id = None
+    else:
+        try:
+            station_id = int(raw_station)
+        except (ValueError, TypeError):
+            station_id = None
+
+    if operation == "create":
+        existing = (
+            db.query(Incident)
+            .filter(Incident.id == entity_id)
+            .first()
+        )
+
+        if existing:
             return True
 
-        if operation == "update":
-            incident = db.query(Incident).filter(Incident.id == entity_id).first()
-            if not incident:
-                return False
+        incident = Incident(
+            id=entity_id,
+            station_id=station_id,  # Safely maps to integer or None
+            created_by=str(user.id),
+            type=payload.get("type", "other"),
+            severity=payload.get("severity", "medium"),
+            status=payload.get("status", "raised"),
+            title=payload.get("title", ""),
+            description=payload.get("description"),
+            location_text=payload.get("location_text"),
+            lat=payload.get("lat"),
+            lon=payload.get("lon"),
+            raised_at=parse_timestamp(
+                payload.get("raised_at")
+            ),
+            escalation_level=payload.get(
+                "escalation_level",
+                0,
+            ),
+        )
 
-            client_version = payload.get("base_version", base_version)
-            if client_version != incident.version:
-                return {
-                    "success": False,
-                    "conflict": True,
-                    "record": self.serialize(incident),
-                    "server_version": incident.version,
-                }
+        db.add(incident)
+        return True
 
-            for field in [
-                "type", "severity", "status", "title", "description",
-                "location_text", "lat", "lon", "escalation_level",
-                "is_sos", "sos_category", "source", "reporter_personnel_id",
-                "people_affected", "details", "cancel_requested_at",
-                "cancel_requested_by", "cancel_requested_reason",
-                "cancel_confirmed_at", "cancel_confirmed_by",
-                "acknowledged_by", "acknowledged_at", "resolved_at"
-            ]:
-                if field in payload:
-                    val = payload[field]
-                    if "at" in field and val:
-                        val = parse_timestamp(val)
-                    setattr(incident, field, val)
+    if operation == "update":
+        incident = (
+            db.query(Incident)
+            .filter(Incident.id == entity_id)
+            .first()
+        )
 
-            return True
+        if not incident:
+            return False
 
-        if operation == "delete":
-            incident = db.query(Incident).filter(Incident.id == entity_id).first()
-            if incident:
-                incident.deleted_at = datetime.now(timezone.utc)
-            return True
+        client_version = payload.get(
+            "base_version",
+            base_version,
+        )
 
-        return False
+        current_version = getattr(incident, "version", 1)
 
+        if client_version != current_version:
+            return {
+                "success": False,
+                "conflict": True,
+                "record": {
+                    "id": incident.id,
+                    "version": current_version,
+                    "status": incident.status,
+                    "title": incident.title,
+                    "description": incident.description,
+                },
+                "server_version": current_version,
+            }
 
-@register_handler
-class IncidentUpdateHandler(EntityHandler):
-    entity_type = "incident_update"
-    model = IncidentUpdate
-    permission_prefix = "sos"
-    is_ledger = True
+        for field in (
+            "type",
+            "severity",
+            "status",
+            "title",
+            "description",
+            "location_text",
+            "lat",
+            "lon",
+            "escalation_level",
+        ):
+            if field in payload:
+                setattr(incident, field, payload[field])
 
     def serialize(self, obj):
         data = super().serialize(obj)

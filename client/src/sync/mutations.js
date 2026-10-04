@@ -61,10 +61,10 @@ export async function saveAndQueue(
   const user = authService.getUser();
   const userId = user?.id || 'anonymous';
 
-  const stationId =
-    record.station_id ||
-    user?.station_id ||
-    null;
+  // Robustly sanitize station_id to prevent 'DEFAULT_STATION' from leaking into integer database columns
+  const rawStationId = record.station_id || user?.station_id;
+  const isValidStation = rawStationId && rawStationId !== 'DEFAULT_STATION';
+  const stationId = isValidStation ? parseInt(rawStationId, 10) : null;
 
   const recordId =
     record.id ||
@@ -107,7 +107,7 @@ export async function saveAndQueue(
   const processedRecord = {
     ...record,
     id: recordId,
-    station_id: stationId,
+    station_id: isNaN(stationId) ? null : stationId,
     version,
     updated_at: now,
   };

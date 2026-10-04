@@ -1,17 +1,13 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 
 import { authService } from '../../services/auth';
 import syncEngine from '../../sync/sync-engine';
 import useSyncStatus from '../../hooks/useSyncStatus';
-import SosHoldButton from '../sos/SosHoldButton';
-import { fireBeacon } from '../../sos/beacon';
+import { SosButton } from '../common/SosButton';
 
 
 function Header() {
-  const [user, setUser] = useState(null);
-  const [sosInFlight, setSosInFlight] = useState(false);
-  const navigate = useNavigate();
+  const user = authService.getUser();
 
   const {
     isOnline,
@@ -23,45 +19,25 @@ function Header() {
   } = useSyncStatus();
 
   useEffect(() => {
-    const currentUser = authService.getUser();
-
-    setUser(currentUser);
-
-    if (currentUser?.id) {
-      syncEngine.startAutoSync(currentUser.id);
+    if (user?.id) {
+      syncEngine.startAutoSync(user.id);
     }
 
     return () => {
       syncEngine.stopAutoSync();
     };
-  }, []);
+  }, [user?.id]);
 
   const handleSync = async () => {
-  if (!user?.id) {
-    return;
-  }
-
-  await syncEngine.sync(
-    user.id,
-    { forceRetry: true }
-  );
-};
-
-  const handleSos = async () => {
-    if (sosInFlight) return;
-    setSosInFlight(true);
-    try {
-      const { incidentId } = await fireBeacon();
-      // Trigger fast-lane push immediately
-      if (user?.id) syncEngine.fireSosFastLane(user.id);
-      navigate(`/sos/${incidentId}`);
-    } catch (err) {
-      console.error('[SOS] Beacon failed:', err);
-    } finally {
-      setSosInFlight(false);
+    if (!user?.id) {
+      return;
     }
-  };
 
+    await syncEngine.sync(
+      user.id,
+      { forceRetry: true }
+    );
+  };
   const handleLogout = async () => {
     await authService.logout();
     window.location.href = '/login';
@@ -161,6 +137,13 @@ function Header() {
             person
           </span>
         </div>
+
+        <div className="flex items-center space-x-3">
+        <SosButton />
+        {/* existing network indicators & buttons */}
+        </div>
+
+        
       </div>
     </header>
 

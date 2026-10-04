@@ -41,7 +41,8 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             print(f"Error initializing station node: {err}")
 
-    escalation_task = asyncio.create_task(escalation_background_worker())
+from app.routes import auth, sync, cargo, weather
+from app.routes import emergency
 
     yield
 
@@ -89,29 +90,4 @@ app.include_router(sync.router)
 app.include_router(emergency.router)
 app.include_router(cargo.router)
 app.include_router(weather.router)
-
-# Serve built frontend in Station Node mode or production deployment
-client_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "dist"))
-if os.path.exists(client_dist):
-    assets_dir = os.path.join(client_dist, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-    @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
-        if full_path.startswith("api/") or full_path.startswith("docs") or full_path == "openapi.json":
-            raise HTTPException(status_code=404, detail="API route not found")
-        file_path = os.path.join(client_dist, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        index_path = os.path.join(client_dist, "index.html")
-        if os.path.isfile(index_path):
-            return FileResponse(index_path)
-        return {"status": "DHRUV API Online"}
-else:
-    @app.get("/")
-    def read_root():
-        return {
-            "status": "DHRUV API Online",
-            "mode": "station" if is_station_mode else "central",
-        }
+app.include_router(emergency.router)
