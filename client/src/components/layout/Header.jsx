@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { authService } from '../../services/auth';
 import syncEngine from '../../sync/sync-engine';
 import useSyncStatus from '../../hooks/useSyncStatus';
+import SosHoldButton from '../sos/SosHoldButton';
+import { fireBeacon } from '../../sos/beacon';
 
 
 function Header() {
   const [user, setUser] = useState(null);
+  const [sosInFlight, setSosInFlight] = useState(false);
+  const navigate = useNavigate();
 
   const {
     isOnline,
@@ -41,12 +46,29 @@ function Header() {
     { forceRetry: true }
   );
 };
+
+  const handleSos = async () => {
+    if (sosInFlight) return;
+    setSosInFlight(true);
+    try {
+      const { incidentId } = await fireBeacon();
+      // Trigger fast-lane push immediately
+      if (user?.id) syncEngine.fireSosFastLane(user.id);
+      navigate(`/sos/${incidentId}`);
+    } catch (err) {
+      console.error('[SOS] Beacon failed:', err);
+    } finally {
+      setSosInFlight(false);
+    }
+  };
+
   const handleLogout = async () => {
     await authService.logout();
     window.location.href = '/login';
   };
 
   return (
+    <>
     <header className="fixed top-0 left-64 right-0 h-14 bg-surface-container-low border-b border-outline-variant z-40 flex items-center justify-between px-gutter-lg">
       <div className="flex items-center gap-gutter-md">
         <div className="flex items-center gap-space-xs">
@@ -99,6 +121,14 @@ function Header() {
       </div>
 
       <div className="flex items-center gap-gutter-md">
+        {/* SOS Hold Button (desktop) */}
+        <div className="hidden md:block">
+          <SosHoldButton
+            disabled={sosInFlight}
+            onActivate={handleSos}
+          />
+        </div>
+
         <button
           onClick={handleSync}
           disabled={syncing}
@@ -133,6 +163,14 @@ function Header() {
         </div>
       </div>
     </header>
+
+    {/* Floating SOS button for mobile (<768px) */}
+    <SosHoldButton
+      floating
+      disabled={sosInFlight}
+      onActivate={handleSos}
+    />
+    </>
   );
 }
 

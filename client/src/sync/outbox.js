@@ -1,4 +1,5 @@
 import db from '../db/dexie';
+import { SOS_THRESHOLD } from './priorities';
 
 const RETRY_DELAYS = [
   5000,
@@ -7,6 +8,9 @@ const RETRY_DELAYS = [
   180000,
   300000,
 ];
+
+// SOS fast-lane: aggressive retry at 2s, 3s, 5s
+const SOS_RETRY_DELAYS = [2000, 3000, 5000];
 
 
 class Outbox {
@@ -141,11 +145,15 @@ class Outbox {
     const retryCount =
       (item.retry_count || 0) + 1;
 
+    // SOS fast lane: use aggressive retry schedule
+    const isSos = (item.priority || 0) >= SOS_THRESHOLD;
+    const delays = isSos ? SOS_RETRY_DELAYS : RETRY_DELAYS;
+
     const delay =
-      RETRY_DELAYS[
+      delays[
         Math.min(
           retryCount - 1,
-          RETRY_DELAYS.length - 1
+          delays.length - 1
         )
       ];
 
@@ -207,6 +215,15 @@ class Outbox {
         (item) => item.status === 'acked'
       )
       .delete();
+  }
+
+  /**
+   * Check whether a priority value qualifies for SOS fast-lane.
+   * @param {number} priority
+   * @returns {boolean}
+   */
+  isSosPriority(priority) {
+    return (priority || 0) >= SOS_THRESHOLD;
   }
 }
 

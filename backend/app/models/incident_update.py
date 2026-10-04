@@ -21,3 +21,4 @@ class IncidentUpdate(SyncMixin, Base):
     )
     note = Column(String(1000), nullable=True)
     status_change = Column(String(30), nullable=True)
+    kind = Column(String(30), nullable=False, default="note", server_default="note", index=True)
