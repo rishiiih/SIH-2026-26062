@@ -3,11 +3,13 @@ import { authService } from './services/auth';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
+import SosAlarmOverlay from './components/sos/SosAlarmOverlay';
 import Login from './pages/Login';
 import Register from './pages/Register'; // <--- 1. Import Register
 import CommandDashboard from './pages/CommandDashboard';
 import StationLeader from './pages/StationLeader';
 import EmergencyIncidents from './pages/EmergencyIncidents';
+import SosSenderScreen from './pages/SosSenderScreen';
 import CargoLog from './pages/CargoLog';
 import Inventory from './pages/Inventory';
 import Personnel from './pages/Personnel';
@@ -35,6 +37,9 @@ function App() {
           path="/*"
           element={
             <ProtectedRoute>
+              {/* Global SOS alarm overlay — renders on all pages */}
+              <SosAlarmOverlay />
+
               <div className="flex">
                 <Sidebar />
                 <div className="pl-64 flex-1">
@@ -43,6 +48,7 @@ function App() {
                     <Route path="/dashboard" element={<CommandDashboard />} />
                     <Route path="/station-leader" element={<StationLeader />} />
                     <Route path="/emergency" element={<EmergencyIncidents />} />
+                    <Route path="/sos/:id" element={<SosSenderScreen />} />
                     <Route path="/cargo-log" element={<CargoLog />} />
                     <Route path="/inventory" element={<Inventory />} />
                     <Route path="/personnel" element={<Personnel />} />

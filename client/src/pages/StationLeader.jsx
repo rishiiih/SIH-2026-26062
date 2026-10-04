@@ -1,8 +1,24 @@
+import { useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import db from '../db/dexie';
+
 function StationLeader() {
+  const navigate = useNavigate();
   const consumables = [];
   const personnel = [];
   const consignments = [];
   const equipmentFlags = [];
+
+  const activeIncidents = useLiveQuery(
+    async () => {
+      if (!db.incidents) return [];
+      return db.incidents.filter((i) => i.status !== 'resolved' && i.status !== 'cancelled').toArray();
+    },
+    [],
+    []
+  );
+
+  const pendingCancel = (activeIncidents || []).find((i) => i.cancel_requested_at && !i.cancel_confirmed_at);
 
   return (
     <div className="w-full pt-14 pb-10 px-gutter-lg bg-surface min-h-[calc(100vh-2.5rem)]">
@@ -24,12 +40,34 @@ function StationLeader() {
               <span className="font-label-sm text-label-sm block text-[#50616a]">Outside temp</span>
               <span className="font-data-mono-md text-data-mono-md font-semibold text-[#1D2B33]">--.-°C</span>
             </div>
-            <button className="h-8 px-space-md bg-primary-container text-on-primary border border-primary-container rounded-[3px] font-title-sm text-title-sm hover:bg-[#25555C] active:bg-[#1C4147] flex items-center gap-space-xs" type="button">
+            <button
+              onClick={() => navigate('/emergency')}
+              className="h-8 px-space-md bg-primary-container text-on-primary border border-primary-container rounded-[3px] font-title-sm text-title-sm hover:bg-[#25555C] active:bg-[#1C4147] flex items-center gap-space-xs"
+              type="button"
+            >
               <span className="material-symbols-outlined text-[16px]">emergency_share</span>
-              <span>Log roll call</span>
+              <span>Log roll call / Muster</span>
             </button>
           </div>
         </div>
+
+        {/* Pending False Alarm Banner */}
+        {pendingCancel && (
+          <div
+            onClick={() => navigate('/emergency')}
+            className="bg-amber-50 border-2 border-amber-500 rounded-[3px] p-space-sm px-space-md mb-gutter-md flex items-center justify-between cursor-pointer hover:bg-amber-100 transition-colors animate-pulse"
+          >
+            <div className="flex items-center gap-space-sm">
+              <span className="material-symbols-outlined text-amber-600 text-[22px]">warning</span>
+              <span className="font-body-md text-body-md text-amber-950 font-bold">
+                ALERT: False alarm cancellation requested on SOS #{pendingCancel.id.slice(0, 8)} — Radio verification required!
+              </span>
+            </div>
+            <span className="px-2 py-1 bg-amber-600 text-white rounded text-xs font-bold">
+              Review in Emergency Console &rarr;
+            </span>
+          </div>
+        )}
 
         {/* Offline Status Banner */}
         <div className="bg-[#EEF1F2] border border-[#C3CCD0] rounded-[3px] p-space-sm px-space-md mb-gutter-md flex items-center justify-between">

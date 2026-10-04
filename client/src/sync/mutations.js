@@ -42,6 +42,11 @@ function getTableName(entityType) {
     incidents: 'incidents',
     incident_update: 'incident_updates',
     alert: 'alerts',
+    // SOS entity mappings
+    muster_entry: 'muster_entries',
+    assistance_request: 'assistance_requests',
+    station_neighbour: 'station_neighbours',
+    sos_delivery: 'sos_delivery',
   };
 
   return mapping[entityType] || entityType;

@@ -2,10 +2,13 @@ import api from '../services/api';
 import db from '../db/dexie';
 import outbox from './outbox';
 import { authService } from '../services/auth';
+import { SOS_THRESHOLD } from './priorities';
+import linkSimulator from '../services/linkSimulator';
 
 
 const PUSH_BATCH_SIZE = 50;
 const HEALTH_INTERVAL = 15000;
+const STATION_API_URL = localStorage.getItem('station_api_url') || null;
 
 
 class SyncEngine {
@@ -115,6 +118,22 @@ class SyncEngine {
       return;
     }
 
+    // ── SOS fast lane: fire SOS items immediately, no health gate ──
+    const allPending =
+      await outbox.getPendingMutations(
+        userId,
+        { forceRetry }
+      );
+
+    const sosMutations = allPending.filter(
+      (m) => (m.priority || 0) >= SOS_THRESHOLD
+    );
+
+    if (sosMutations.length) {
+      await this.pushSosFastLane(sosMutations);
+    }
+
+    // ── Normal sync: health-gated batch push + pull ──
     const healthy = await this.checkHealth(false);
 
     if (!healthy) {
@@ -406,6 +425,11 @@ class SyncEngine {
       incidents: 'incidents',
       incident_update: 'incident_updates',
       alert: 'alerts',
+      // SOS entity mappings
+      muster_entry: 'muster_entries',
+      assistance_request: 'assistance_requests',
+      station_neighbour: 'station_neighbours',
+      sos_delivery: 'sos_delivery',
     };
 
     return mapping[entityType] || entityType;
@@ -454,6 +478,149 @@ class SyncEngine {
       failedCount,
       conflictCount,
     };
+  }
+
+  // ════════════════════════════════════════════
+  //  SOS FAST LANE — bypasses health gate,
+  //  batching, and exponential backoff.
+  // ════════════════════════════════════════════
+
+  /**
+   * Push SOS mutations immediately and concurrently
+   * to all known endpoints (Central + Station Node).
+   *
+   * Each item is sent individually (no batching) so that
+   * a single item failure doesn't block others.
+   */
+  async pushSosFastLane(sosMutations) {
+    for (const item of sosMutations) {
+      const mutation = {
+        id: String(item.id),
+        entity_type: item.entity_type,
+        entity_id: item.entity_id,
+        operation: item.operation,
+        payload: item.payload,
+        base_version:
+          item.base_version ??
+          item.payload?.base_version ??
+          0,
+        idempotency_key: item.idempotency_key,
+        device_timestamp: item.device_timestamp,
+        priority: item.priority || 0,
+      };
+
+      const body = {
+        device_id: outbox.deviceId,
+        mutations: [mutation],
+      };
+
+      const payloadBytes = new TextEncoder().encode(
+        JSON.stringify(body)
+      ).length;
+
+      // Build the list of endpoints to try concurrently
+      const endpoints = [];
+
+      // Central endpoint (unless link simulator blocks it)
+      const centralVerdict = linkSimulator.check(payloadBytes, 'central');
+      if (!centralVerdict.blocked) {
+        endpoints.push({
+          label: 'central',
+          request: api.post('/api/sync/push', body),
+        });
+      }
+
+      // Station LAN endpoint (if configured)
+      if (STATION_API_URL) {
+        const stationVerdict = linkSimulator.check(
+          payloadBytes,
+          'station_lan'
+        );
+        if (!stationVerdict.blocked) {
+          endpoints.push({
+            label: 'station_lan',
+            request: fetch(`${STATION_API_URL}/api/sync/push`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+              },
+              body: JSON.stringify(body),
+            }),
+          });
+        }
+      }
+
+      if (!endpoints.length) {
+        // All endpoints blocked by link simulator — mark for fast retry
+        await outbox.markForRetry(
+          item.id,
+          'All endpoints blocked (link simulator)'
+        );
+        continue;
+      }
+
+      // Fire all endpoints concurrently — settle independently
+      const results = await Promise.allSettled(
+        endpoints.map((ep) => ep.request)
+      );
+
+      let anySuccess = false;
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const label = endpoints[i].label;
+
+        if (result.status === 'fulfilled') {
+          // Record delivery receipt
+          if (db.sos_delivery) {
+            await db.sos_delivery.add({
+              incident_id: item.entity_id,
+              channel: label,
+              status: 'delivered',
+              timestamp: new Date().toISOString(),
+            });
+          }
+          anySuccess = true;
+        } else {
+          console.warn(
+            `[SOS Fast Lane] ${label} failed:`,
+            result.reason?.message || result.reason
+          );
+        }
+      }
+
+      if (anySuccess) {
+        await outbox.markAsAcked(item.id);
+      } else {
+        await outbox.markForRetry(
+          item.id,
+          'All endpoints failed'
+        );
+      }
+    }
+  }
+
+  /**
+   * Public method for beacon.js to trigger an immediate
+   * SOS fast-lane push for a specific user, bypassing
+   * the normal sync cycle entirely.
+   */
+  async fireSosFastLane(userId) {
+    if (!userId) return;
+
+    const pending =
+      await outbox.getPendingMutations(userId, {
+        forceRetry: true,
+      });
+
+    const sosMutations = pending.filter(
+      (m) => (m.priority || 0) >= SOS_THRESHOLD
+    );
+
+    if (sosMutations.length) {
+      await this.pushSosFastLane(sosMutations);
+    }
   }
 }
 

@@ -8,11 +8,11 @@ class AuditService:
         Takes 'db' as a parameter because FastAPI injects the database session.
         """
         audit_entry = AuditLog(
-            user_id=user.id,
-            username=user.username,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
+            user_id=str(user_id) if user_id else None,
+            username=str(username or "unknown"),
+            action=str(action or "unknown"),
+            entity_type=str(entity_type or "incident"),
+            entity_id=str(entity_id or "unknown"),
             before_data=before_data,
             after_data=after_data,
             device_timestamp=device_timestamp,

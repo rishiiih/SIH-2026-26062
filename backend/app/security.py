@@ -27,6 +27,12 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+from typing import Optional
+from app.sos_config import SOS_MAX_TOKEN_AGE_DAYS
+
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -45,3 +51,52 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_sos_user(token: Optional[str] = Depends(oauth2_scheme_optional), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials for SOS beacon",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    if not token:
+        raise credentials_exception
+
+    user_id = None
+    token_was_expired = False
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+    except JWTError:
+        try:
+            # Decode without expiration verification
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+            exp = payload.get("exp")
+            if exp:
+                exp_dt = datetime.utcfromtimestamp(exp)
+                max_age_dt = datetime.utcnow() - timedelta(days=SOS_MAX_TOKEN_AGE_DAYS)
+                if exp_dt >= max_age_dt:
+                    user_id = payload.get("sub")
+                    token_was_expired = True
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"SOS token expired beyond allowable limit ({SOS_MAX_TOKEN_AGE_DAYS} days)",
+                    )
+            else:
+                user_id = payload.get("sub")
+        except HTTPException:
+            raise
+        except Exception:
+            raise credentials_exception
+
+    if not user_id:
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise credentials_exception
+
+    user._token_was_expired = token_was_expired
+    return user

@@ -16,6 +16,9 @@ from app.models.maintenance_record import MaintenanceRecord
 from app.models.incident import Incident
 from app.models.incident_update import IncidentUpdate
 from app.models.alert import Alert
+from app.models.muster_entry import MusterEntry
+from app.models.assistance_request import AssistanceRequest
+from app.models.station_neighbour import StationNeighbour
 
 __all__ = [
 	'User', 'Role', 'Permission', 'RolePermission', 'Station', 'AuditLog',
@@ -23,4 +26,5 @@ __all__ = [
 	'Consignment', 'ConsignmentItem', 'CustodyScan', 'InventoryItem',
 	'StockMovement', 'Personnel', 'CheckIn', 'Asset',
 	'MaintenanceRecord', 'Incident', 'IncidentUpdate', 'Alert',
+	'MusterEntry', 'AssistanceRequest', 'StationNeighbour',
 ]

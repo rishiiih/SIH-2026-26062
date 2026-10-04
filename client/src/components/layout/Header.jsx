@@ -44,6 +44,7 @@ function Header() {
   };
 
   return (
+    <>
     <header className="fixed top-0 left-64 right-0 h-14 bg-surface-container-low border-b border-outline-variant z-40 flex items-center justify-between px-gutter-lg">
       <div className="flex items-center gap-gutter-md">
         <div className="flex items-center gap-space-xs">
@@ -96,6 +97,14 @@ function Header() {
       </div>
 
       <div className="flex items-center gap-gutter-md">
+        {/* SOS Hold Button (desktop) */}
+        <div className="hidden md:block">
+          <SosHoldButton
+            disabled={sosInFlight}
+            onActivate={handleSos}
+          />
+        </div>
+
         <button
           onClick={handleSync}
           disabled={syncing}
@@ -137,6 +146,14 @@ function Header() {
         
       </div>
     </header>
+
+    {/* Floating SOS button for mobile (<768px) */}
+    <SosHoldButton
+      floating
+      disabled={sosInFlight}
+      onActivate={handleSos}
+    />
+    </>
   );
 }
 
